@@ -63,6 +63,15 @@ export const stopStream = async (sessionId: string) => {
   return res.json()
 }
 
+export const hitTest = async (sessionId: string, x: number, y: number, mode: 'hover' | 'click' = 'hover') => {
+  const res = await fetch(`${BASE_URL}/action/hit`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sessionId, x, y, mode })
+  })
+  return res.json()
+}
+
 export const subscribeEvents = (sessionId: string, handlers: {
   onLog?: (data: any) => void,
   onDomUpdate?: (data: any) => void,

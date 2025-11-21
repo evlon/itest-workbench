@@ -120,7 +120,7 @@ const server = http.createServer(async (req, res) => {
     const body = await parseBody(req)
     const sessionId = genId()
     const urlToOpen = body.url || ''
-    const headless = true
+    const headless = false
     const browser = await chromium.launch({ headless })
     const context = await browser.newContext()
     const page = await context.newPage()
@@ -129,6 +129,8 @@ const server = http.createServer(async (req, res) => {
     }
     let shot = ''
     try { shot = (await page.screenshot({ fullPage: true }))?.toString('base64') || '' } catch {}
+    const dpr = await page.evaluate(() => window.devicePixelRatio || 1)
+    const vp = page.viewportSize() || { width: 1280, height: 720 }
     sessions.set(sessionId, {
       id: sessionId,
       url: urlToOpen,
@@ -144,6 +146,8 @@ const server = http.createServer(async (req, res) => {
       streamIntervalMs: 1000,
       streamEnabled: false,
       wsClients: new Set(),
+      devicePixelRatio: dpr,
+      viewport: vp,
     })
     return sendJson(res, 200, { sessionId })
   }
@@ -209,6 +213,78 @@ const server = http.createServer(async (req, res) => {
     for (const client of session.clients) writeEvent(client, 'dom-update', { html_snippet: '<div>mock</div>', interactive_elements: [] })
     for (const client of session.clients) writeEvent(client, 'action-complete', { status: 'success', result: {} })
     return sendJson(res, 200, { status: 'processing' })
+  }
+
+  if (req.method === 'GET' && pathname === '/session/meta') {
+    const sessionId = parsed.query.sessionId
+    const session = sessions.get(sessionId)
+    if (!session) return sendJson(res, 400, { error: 'invalid_session' })
+    return sendJson(res, 200, { devicePixelRatio: session.devicePixelRatio || 1, viewport: session.viewport || { width: 0, height: 0 } })
+  }
+
+  if (req.method === 'POST' && pathname === '/action/hit') {
+    const body = await parseBody(req)
+    const session = sessions.get(body.sessionId)
+    if (!session) return sendJson(res, 400, { error: 'invalid_session' })
+    const x = Number(body.x)
+    const y = Number(body.y)
+    const mode = body.mode === 'click' ? 'click' : 'hover'
+    const page = session.page
+    let result = null
+    try {
+      result = await page.evaluate(({ x, y, dpr, vp }) => {
+        const cssX = Math.max(0, Math.min(Math.round(x / (dpr || 1)), (vp?.width || window.innerWidth) - 1))
+        const cssY = Math.max(0, Math.min(Math.round(y / (dpr || 1)), (vp?.height || window.innerHeight) - 1))
+        const el = document.elementFromPoint(cssX, cssY)
+        if (!el) return null
+
+        const buildSelector = (node) => {
+          if (!node) return ''
+          const tag = node.tagName ? node.tagName.toLowerCase() : ''
+          const id = node.id ? `#${CSS.escape(node.id)}` : ''
+          const testid = node.getAttribute('data-testid')
+          const name = node.getAttribute('name')
+          const aria = node.getAttribute('aria-label')
+          if (id) return id
+          if (testid) return `[data-testid="${CSS.escape(testid)}"]`
+          if (aria) return `[aria-label="${CSS.escape(aria)}"]`
+          if (name) return `${tag}[name="${CSS.escape(name)}"]`
+          const classes = Array.from(node.classList || [])
+          const stable = classes.filter(c => c && c.length <= 24 && !/\d{4,}/.test(c)).slice(0, 2)
+          if (stable.length) return `${tag}.${stable.map(c => CSS.escape(c)).join('.')}`
+          // fallback path
+          let path = tag
+          let cur = node
+          while (cur && cur.parentElement) {
+            const parent = cur.parentElement
+            const children = Array.from(parent.children)
+            const idx = children.indexOf(cur) + 1
+            path = `${parent.tagName.toLowerCase()} > ${path}:nth-child(${idx})`
+            cur = parent
+            if (path.length > 120) break
+          }
+          return path
+        }
+
+        const rect = el.getBoundingClientRect()
+        const text = (el.textContent || '').trim().slice(0, 80)
+        const selector = buildSelector(el)
+        return {
+          description: `${el.tagName.toLowerCase()}${text ? `: ${text}` : ''}`,
+          rect: { x: rect.left, y: rect.top, width: rect.width, height: rect.height },
+          selectors: { precise: selector, text }
+        }
+      }, { x, y, dpr: session.devicePixelRatio, vp: session.viewport })
+    } catch {}
+    if (!result) {
+      try { console.log('[hit] miss', { x, y, mode }) } catch {}
+      return sendJson(res, 200, { hit: null })
+    }
+    try { console.log('[hit] element', { x, y, mode, selector: result.selectors?.precise }) } catch {}
+    for (const client of session.clients) {
+      writeEvent(client, 'hit', { mode, element: result, timestamp: Date.now() })
+    }
+    return sendJson(res, 200, { hit: result })
   }
 
   if (req.method === 'POST' && pathname === '/stream/start') {

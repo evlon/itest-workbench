@@ -152,12 +152,49 @@ export const generateTestScript = async (
   steps: Step[],
   mode: ScriptMode
 ): Promise<string> => {
+  if (mode === ScriptMode.STATIC) {
+    const lines: string[] = []
+    lines.push("import { test, expect } from '@playwright/test';")
+    lines.push("")
+    lines.push("test('Generated Test', async ({ page }) => {")
+    for (const s of steps) {
+      const selector = getBestStaticSelectorForStep(s) || s.target?.selectors?.precise || ''
+      if (s.action === 'navigate') {
+        const url = s.params?.url || ''
+        if (url) {
+          lines.push(`  await page.goto('${url}', { waitUntil: 'load' });`)
+        }
+      } else if (s.action === 'click') {
+        if (selector) {
+          lines.push(`  await page.waitForSelector('${selector}', { state: 'visible', timeout: 5000 });`)
+          lines.push(`  await page.locator('${selector}').click();`)
+        }
+      } else if (s.action === 'input') {
+        const value = s.params?.value ?? ''
+        if (selector) {
+          lines.push(`  await page.waitForSelector('${selector}', { state: 'visible', timeout: 5000 });`)
+          lines.push(`  await page.locator('${selector}').fill('${String(value)}');`)
+        }
+      } else if (s.action === 'wait') {
+        const ms = Number(s.params?.timeout || 500)
+        lines.push(`  await page.waitForTimeout(${ms});`)
+      } else if (s.action === 'extract') {
+        if (selector) {
+          lines.push(`  await page.waitForSelector('${selector}', { state: 'visible', timeout: 5000 });`)
+          lines.push(`  const text = await page.locator('${selector}').innerText();`)
+          lines.push(`  expect(text).toBeTruthy();`)
+        }
+      }
+    }
+    lines.push("});")
+    return lines.join("\n")
+  }
   if (!apiKey) return "// API Key 缺失。生成了模拟脚本。\n\nimport { test } from '@playwright/test';\n\ntest('Mock Test', async ({ page }) => {\n});";
 
   const stepsJson = JSON.stringify(steps.map(s => ({
     intent: s.intent,
     action: s.action,
-    selector: mode === ScriptMode.STATIC ? getBestStaticSelectorForStep(s) : s.target?.selectors?.precise,
+    selector: s.target?.selectors?.precise,
     params: s.params
   })));
 

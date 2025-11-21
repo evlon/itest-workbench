@@ -26,6 +26,8 @@ export const BrowserPreview: React.FC<BrowserPreviewProps> = ({ url, onUrlChange
   const viewportRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
+  const [overlay, setOverlay] = useState<{ x: number, y: number, width: number, height: number } | null>(null);
+  const [frameSize, setFrameSize] = useState<{ w: number, h: number } | null>(null);
 
   // Simulate loading the remote browser session
   useEffect(() => {
@@ -41,6 +43,7 @@ export const BrowserPreview: React.FC<BrowserPreviewProps> = ({ url, onUrlChange
     const agentUrl = (import.meta as any).env?.VITE_AGENT_URL || 'http://localhost:3000'
     const wsScheme = agentUrl.startsWith('https') ? 'wss' : 'ws'
     const wsUrl = `${wsScheme}://${agentUrl.replace(/^https?:\/\//, '')}/ws?sessionId=${sessionId}`
+    const metaUrl = `${agentUrl}/session/meta?sessionId=${sessionId}`
 
     const canvas = canvasRef.current
     const viewport = viewportRef.current
@@ -59,6 +62,9 @@ export const BrowserPreview: React.FC<BrowserPreviewProps> = ({ url, onUrlChange
     resizeObserver.observe(viewport)
 
     if (sessionId && isStreaming) {
+      fetch(metaUrl).then(r => r.json()).then(m => {
+        // optional: could use m.devicePixelRatio/m.viewport for extra mapping logic later
+      }).catch(() => {})
       try {
         const ws = new WebSocket(wsUrl)
         ws.binaryType = 'arraybuffer'
@@ -74,6 +80,7 @@ export const BrowserPreview: React.FC<BrowserPreviewProps> = ({ url, onUrlChange
             if (ctx) {
               ctx.clearRect(0, 0, canvas.width, canvas.height)
               ctx.drawImage(bmp, 0, 0, canvas.width, canvas.height)
+              setFrameSize({ w: bmp.width, h: bmp.height })
               setIsLoading(false)
             }
           } catch {}
@@ -98,29 +105,68 @@ export const BrowserPreview: React.FC<BrowserPreviewProps> = ({ url, onUrlChange
   };
   
   const handleViewportClick = (e: React.MouseEvent) => {
-    if (isInspecting && !isLoading) {
+    if (isInspecting && !isLoading && sessionId) {
       const rect = e.currentTarget.getBoundingClientRect();
-      const x = e.clientX - rect.left;
-      const y = e.clientY - rect.top;
-
-      // In a real implementation, we would send these coordinates to Stagehand.
-      // Stagehand would identify the element at these coordinates in the real browser.
-      // For now, we simulate this by creating a fake element.
-      
-      console.log(`[Simulated Stagehand] User clicked at (${x.toFixed(0)}, ${y.toFixed(0)}). Asking Stagehand to identify element.`);
-
-      // Simulate a response from Stagehand after a short delay
-      setTimeout(() => {
-        const target = {
-          description: `元素 @ (${x.toFixed(0)}, ${y.toFixed(0)})`,
-          selectors: {
-            precise: `div.some-class > #${`el-${Date.now()}`}`
-          }
-        };
-        onElementSelect({ target });
-      }, 300);
+      const cx = e.clientX - rect.left;
+      const cy = e.clientY - rect.top;
+      const canvas = canvasRef.current
+      const fs = frameSize
+      if (!canvas || !fs) return
+      const scaleX = fs.w / canvas.width
+      const scaleY = fs.h / canvas.height
+      const px = Math.round(cx * scaleX)
+      const py = Math.round(cy * scaleY)
+      fetch(`${(import.meta as any).env?.VITE_AGENT_URL || 'http://localhost:3000'}/action/hit`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId, x: px, y: py, mode: 'click' })
+      }).then(r => r.json()).then(data => {
+        const hit = data.hit
+        if (hit && hit.selectors) {
+          setOverlay(hit.rect ? {
+            x: hit.rect.x * (canvas.width / fs.w),
+            y: hit.rect.y * (canvas.height / fs.h),
+            width: hit.rect.width * (canvas.width / fs.w),
+            height: hit.rect.height * (canvas.height / fs.h)
+          } : null)
+          console.log('overlay-set', hit.rect)
+          onElementSelect({ target: { description: hit.description, selectors: hit.selectors } })
+        }
+      }).catch(() => {})
     }
   };
+
+  const handleViewportMove = (e: React.MouseEvent) => {
+    if (isInspecting && !isLoading && sessionId) {
+      const rect = e.currentTarget.getBoundingClientRect();
+      const cx = e.clientX - rect.left;
+      const cy = e.clientY - rect.top;
+      const canvas = canvasRef.current
+      const fs = frameSize
+      if (!canvas || !fs) return
+      const scaleX = fs.w / canvas.width
+      const scaleY = fs.h / canvas.height
+      const px = Math.round(cx * scaleX)
+      const py = Math.round(cy * scaleY)
+      setOverlay({ x: cx - 8, y: cy - 8, width: 16, height: 16 })
+      fetch(`${(import.meta as any).env?.VITE_AGENT_URL || 'http://localhost:3000'}/action/hit`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId, x: px, y: py, mode: 'hover' })
+      }).then(r => r.json()).then(data => {
+        const hit = data.hit
+        if (hit && hit.rect) {
+          setOverlay({
+            x: hit.rect.x * (canvas.width / fs.w),
+            y: hit.rect.y * (canvas.height / fs.h),
+            width: hit.rect.width * (canvas.width / fs.w),
+            height: hit.rect.height * (canvas.height / fs.h)
+          })
+          console.log('overlay-hover', hit.rect)
+        }
+      }).catch(() => {})
+    }
+  }
 
   return (
     <div className="flex flex-col h-full bg-slate-900 relative">
@@ -148,6 +194,7 @@ export const BrowserPreview: React.FC<BrowserPreviewProps> = ({ url, onUrlChange
         ref={viewportRef}
         className={`flex-1 relative bg-gray-200 overflow-hidden ${isInspecting ? 'cursor-crosshair' : ''}`}
         onClick={handleViewportClick}
+        onMouseMove={handleViewportMove}
       >
         {isLoading ? (
              <div className="absolute inset-0 flex items-center justify-center bg-slate-900 z-50">
@@ -172,11 +219,19 @@ export const BrowserPreview: React.FC<BrowserPreviewProps> = ({ url, onUrlChange
                 </div>
               )}
               {isStreaming ? (
-                <canvas ref={canvasRef} className="w-full h-full" />
+                <>
+                  <canvas ref={canvasRef} className="w-full h-full" />
+                </>
               ) : screenshotBase64 ? (
                 <img src={`data:image/png;base64,${screenshotBase64}`} alt="preview" className="w-full h-full object-contain" />
               ) : (
                 <div className="w-full h-full flex items-center justify-center text-slate-400">无预览</div>
+              )}
+              {overlay && (
+                <div
+                  className="absolute border-2 border-blue-500 bg-blue-500/10 pointer-events-none z-30"
+                  style={{ left: `${overlay.x}px`, top: `${overlay.y}px`, width: `${overlay.width}px`, height: `${overlay.height}px` }}
+                />
               )}
             </div>
         )}
