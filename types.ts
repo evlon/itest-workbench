@@ -2,7 +2,8 @@ export enum StepType {
   INTERACTION = 'interaction',
   VERIFICATION = 'verification',
   NAVIGATION = 'navigation',
-  CUSTOM = 'custom'
+  CUSTOM = 'custom',
+  COMPONENT = 'component'
 }
 
 export enum ScriptMode {
@@ -22,11 +23,13 @@ export interface Step {
   id: string;
   type: StepType;
   intent: string; // Natural language intent
-  action: 'click' | 'input' | 'extract' | 'navigate' | 'wait' | 'keypress';
+  action: 'click' | 'input' | 'extract' | 'navigate' | 'wait' | 'keypress' | 'component';
   target?: StepTarget;
   params?: Record<string, any>;
   status: 'pending' | 'success' | 'failed' | 'recording';
   isAiGenerated?: boolean;
+  componentId?: string;
+  componentName?: string;
 }
 
 export interface TestSuite {

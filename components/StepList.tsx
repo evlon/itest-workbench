@@ -1,19 +1,21 @@
 
 import React, { useState } from 'react';
 import { Step, StepType } from '../types';
-import { Play, CheckCircle, AlertCircle, MoreHorizontal, Clock, MousePointerClick, GripVertical, Settings } from 'lucide-react';
+import { Play, CheckCircle, AlertCircle, MoreHorizontal, Clock, MousePointerClick, GripVertical, Settings, Package } from 'lucide-react';
 
 interface StepListProps {
   steps: Step[];
   activeStepId: string | null;
+  selectedStepIds: string[];
   onStepClick: (step: Step) => void;
+  onToggleStepSelection: (stepId: string) => void;
   onDeleteStep: (id: string) => void;
   onRunStep: (step: Step) => void;
   onMoveStep: (dragIndex: number, hoverIndex: number) => void;
   onEditStep: (step: Step) => void;
 }
 
-export const StepList: React.FC<StepListProps> = ({ steps, activeStepId, onStepClick, onDeleteStep, onRunStep, onMoveStep, onEditStep }) => {
+export const StepList: React.FC<StepListProps> = ({ steps, activeStepId, selectedStepIds, onStepClick, onToggleStepSelection, onDeleteStep, onRunStep, onMoveStep, onEditStep }) => {
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
 
@@ -50,6 +52,14 @@ export const StepList: React.FC<StepListProps> = ({ steps, activeStepId, onStepC
     setDragOverIndex(null);
   };
 
+  const handleStepClick = (e: React.MouseEvent, step: Step) => {
+    if (e.metaKey || e.ctrlKey) {
+      onToggleStepSelection(step.id);
+    } else {
+      onStepClick(step);
+    }
+  };
+
   return (
     <div className="flex flex-col h-full bg-slate-900 border-r border-slate-800">
       <div className="p-4 border-b border-slate-800 flex justify-between items-center">
@@ -58,96 +68,113 @@ export const StepList: React.FC<StepListProps> = ({ steps, activeStepId, onStepC
       </div>
       
       <div className="flex-1 overflow-y-auto p-2 space-y-2">
-        {steps.map((step, index) => (
-          <div 
-            key={step.id}
-            draggable
-            onDragStart={(e) => handleDragStart(e, index)}
-            onDragOver={(e) => handleDragOver(e, index)}
-            onDragLeave={handleDragLeave}
-            onDrop={(e) => handleDrop(e, index)}
-            onDragEnd={handleDragEnd}
-            onClick={() => onStepClick(step)}
-            className={`
-              group relative flex items-start gap-3 p-3 rounded-md cursor-pointer transition-all border
-              ${activeStepId === step.id 
-                ? 'bg-slate-800 border-blue-500/50 shadow-lg shadow-blue-900/10' 
-                : 'bg-slate-800/40 border-transparent hover:bg-slate-800 hover:border-slate-700'}
-              ${draggedIndex === index ? 'opacity-50 border-dashed border-slate-600' : ''}
-              ${dragOverIndex === index ? 'border-t-2 border-t-blue-500' : ''}
-            `}
-          >
-            {/* Step Number Line & Drag Handle */}
-            <div className="flex flex-col items-center mt-1 gap-2">
-               <div className="cursor-grab active:cursor-grabbing text-slate-600 hover:text-slate-400 opacity-0 group-hover:opacity-100 transition-opacity">
-                 <GripVertical size={12} />
-               </div>
-               <div className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold transition-colors
-                 ${step.status === 'success' ? 'bg-green-900/30 text-green-400' : 
-                   step.status === 'recording' ? 'bg-yellow-900/30 text-yellow-400 animate-pulse' :
-                   'bg-slate-700 text-slate-400'}`}>
-                 {index + 1}
-               </div>
-               {index < steps.length - 1 && <div className="w-px h-full bg-slate-800 mt-2 absolute top-12 left-[1.15rem] -z-10" />}
-            </div>
+        {steps.map((step, index) => {
+          const isSelected = selectedStepIds.includes(step.id);
+          const isComponent = step.type === StepType.COMPONENT;
 
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center justify-between mb-1">
-                <div className="flex items-center gap-2">
-                  <span className={`uppercase text-[10px] font-mono px-1.5 py-0.5 rounded border text-opacity-80
-                    ${step.action === 'click' ? 'bg-blue-900/20 border-blue-800 text-blue-400' :
-                      step.action === 'input' ? 'bg-purple-900/20 border-purple-800 text-purple-400' :
-                      step.action === 'extract' ? 'bg-orange-900/20 border-orange-800 text-orange-400' :
-                      step.action === 'navigate' ? 'bg-cyan-900/20 border-cyan-800 text-cyan-400' :
-                      'bg-slate-950 border-slate-800 text-slate-400'
-                    }`}>
-                    {step.action}
-                  </span>
-                  {step.status === 'success' && <CheckCircle size={12} className="text-green-500" />}
-                  {step.status === 'failed' && <AlertCircle size={12} className="text-red-500" />}
-                  {step.status === 'recording' && <Clock size={12} className="text-yellow-500 animate-pulse" />}
-                </div>
-                
-                {/* Actions */}
-                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                   <button 
-                    onClick={(e) => { e.stopPropagation(); onEditStep(step); }}
-                    className="p-1 hover:bg-slate-700 text-slate-500 hover:text-slate-300 rounded transition-colors"
-                    title="编辑参数"
-                  >
-                    <Settings size={12} />
-                  </button>
-                  <button 
-                    onClick={(e) => { e.stopPropagation(); onRunStep(step); }}
-                    className="p-1 hover:bg-green-900/50 hover:text-green-400 text-slate-500 rounded transition-colors"
-                    title="执行此步骤"
-                  >
-                    <Play size={12} fill="currentColor"/>
-                  </button>
-                  <button 
-                    onClick={(e) => { e.stopPropagation(); onDeleteStep(step.id); }}
-                    className="p-1 hover:bg-red-900/50 hover:text-red-400 text-slate-500 rounded transition-colors"
-                    title="删除步骤"
-                  >
-                    <MoreHorizontal size={12} />
-                  </button>
-                </div>
+          return (
+            <div 
+              key={step.id}
+              draggable
+              onDragStart={(e) => handleDragStart(e, index)}
+              onDragOver={(e) => handleDragOver(e, index)}
+              onDragLeave={handleDragLeave}
+              onDrop={(e) => handleDrop(e, index)}
+              onDragEnd={handleDragEnd}
+              onClick={(e) => handleStepClick(e, step)}
+              className={`
+                group relative flex items-start gap-3 p-3 rounded-md cursor-pointer transition-all border
+                ${activeStepId === step.id 
+                  ? 'bg-slate-800 border-blue-500/50 shadow-lg shadow-blue-900/10' 
+                  : isSelected 
+                    ? 'bg-blue-900/30 border-blue-800'
+                    : 'bg-slate-800/40 border-transparent hover:bg-slate-800 hover:border-slate-700'}
+                ${draggedIndex === index ? 'opacity-50 border-dashed border-slate-600' : ''}
+                ${dragOverIndex === index ? 'border-t-2 border-t-blue-500' : ''}
+                ${isComponent ? 'border-dashed border-green-700/50' : ''}
+              `}
+            >
+              <input
+                type="checkbox"
+                checked={isSelected}
+                onChange={() => onToggleStepSelection(step.id)}
+                className="mt-1.5 h-4 w-4 rounded bg-slate-700 border-slate-600 text-blue-600 focus:ring-blue-500"
+                onClick={(e) => e.stopPropagation()}
+              />
+              {/* Step Number Line & Drag Handle */}
+              <div className="flex flex-col items-center mt-1 gap-2">
+                 <div className="cursor-grab active:cursor-grabbing text-slate-600 hover:text-slate-400 opacity-0 group-hover:opacity-100 transition-opacity">
+                   <GripVertical size={12} />
+                 </div>
+                 <div className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold transition-colors
+                   ${step.status === 'success' ? 'bg-green-900/30 text-green-400' : 
+                     step.status === 'recording' ? 'bg-yellow-900/30 text-yellow-400 animate-pulse' :
+                     isComponent ? 'bg-green-900/40 text-green-300' :
+                     'bg-slate-700 text-slate-400'}`}>
+                   {isComponent ? <Package size={10} /> : index + 1}
+                 </div>
+                 {index < steps.length - 1 && <div className="w-px h-full bg-slate-800 mt-2 absolute top-12 left-[2.65rem] -z-10" />}
               </div>
-              <p className="text-sm text-slate-200 truncate font-medium pr-2">{step.intent}</p>
-              {step.target && (
-                <p className="text-xs text-slate-500 truncate font-mono mt-1 flex items-center gap-1" title={step.target.selectors?.precise}>
-                  <MousePointerClick size={10} className="opacity-50"/>
-                  {step.target.selectors?.precise || "等待 AI 解析..."}
-                </p>
-              )}
-              {step.params && (step.params.url || step.params.value) && (
-                  <p className="text-[10px] text-slate-400 font-mono mt-1 truncate bg-slate-950/50 px-1.5 py-0.5 rounded inline-block max-w-full">
-                     {step.params.url || step.params.value}
+
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center justify-between mb-1">
+                  <div className="flex items-center gap-2">
+                    <span className={`uppercase text-[10px] font-mono px-1.5 py-0.5 rounded border text-opacity-80
+                      ${isComponent ? 'bg-green-900/20 border-green-800 text-green-400' :
+                        step.action === 'click' ? 'bg-blue-900/20 border-blue-800 text-blue-400' :
+                        step.action === 'input' ? 'bg-purple-900/20 border-purple-800 text-purple-400' :
+                        step.action === 'extract' ? 'bg-orange-900/20 border-orange-800 text-orange-400' :
+                        step.action === 'navigate' ? 'bg-cyan-900/20 border-cyan-800 text-cyan-400' :
+                        'bg-slate-950 border-slate-800 text-slate-400'
+                      }`}>
+                      {step.action}
+                    </span>
+                    {step.status === 'success' && <CheckCircle size={12} className="text-green-500" />}
+                    {step.status === 'failed' && <AlertCircle size={12} className="text-red-500" />}
+                    {step.status === 'recording' && <Clock size={12} className="text-yellow-500 animate-pulse" />}
+                  </div>
+                  
+                  {/* Actions */}
+                  <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                     <button 
+                      onClick={(e) => { e.stopPropagation(); onEditStep(step); }}
+                      className="p-1 hover:bg-slate-700 text-slate-500 hover:text-slate-300 rounded transition-colors"
+                      title="编辑参数"
+                    >
+                      <Settings size={12} />
+                    </button>
+                    <button 
+                      onClick={(e) => { e.stopPropagation(); onRunStep(step); }}
+                      className="p-1 hover:bg-green-900/50 hover:text-green-400 text-slate-500 rounded transition-colors"
+                      title="执行此步骤"
+                    >
+                      <Play size={12} fill="currentColor"/>
+                    </button>
+                    <button 
+                      onClick={(e) => { e.stopPropagation(); onDeleteStep(step.id); }}
+                      className="p-1 hover:bg-red-900/50 hover:text-red-400 text-slate-500 rounded transition-colors"
+                      title="删除步骤"
+                    >
+                      <MoreHorizontal size={12} />
+                    </button>
+                  </div>
+                </div>
+                <p className="text-sm text-slate-200 truncate font-medium pr-2">{step.intent}</p>
+                {step.target && (
+                  <p className="text-xs text-slate-500 truncate font-mono mt-1 flex items-center gap-1" title={step.target.selectors?.precise}>
+                    <MousePointerClick size={10} className="opacity-50"/>
+                    {step.target.selectors?.precise || "等待 AI 解析..."}
                   </p>
-              )}
+                )}
+                {step.params && (step.params.url || step.params.value) && (
+                    <p className="text-[10px] text-slate-400 font-mono mt-1 truncate bg-slate-950/50 px-1.5 py-0.5 rounded inline-block max-w-full">
+                       {step.params.url || step.params.value}
+                    </p>
+                )}
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
         
         {steps.length === 0 && (
           <div className="flex flex-col items-center justify-center h-40 text-slate-600">

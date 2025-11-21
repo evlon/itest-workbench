@@ -3,10 +3,14 @@ import OpenAI from "openai";
 import { Step, ScriptMode } from "../types";
 
 // Use the environment variable API key
-const apiKey = process.env.API_KEY || '';
+const MODEL_NAME = process.env.MODEL_NAME || '';
+const LLM_TYPE = MODEL_NAME.split('/')[0];
+const modelName = MODEL_NAME.split('/')[1];
+const apiKey = process.env[`${LLM_TYPE}_API_KEY`] || '';
+const baseUrl = process.env[`${LLM_TYPE}_BASE_URL`] || '';
 
 // Simple detection logic: OpenAI keys typically start with 'sk-'
-const isOpenAI = apiKey.startsWith('sk-');
+const isOpenAI = LLM_TYPE === 'openai';
 
 // Initialize Clients
 let geminiClient: GoogleGenAI | null = null;
@@ -16,6 +20,7 @@ if (apiKey) {
     if (isOpenAI) {
         openaiClient = new OpenAI({ 
             apiKey, 
+            baseURL: baseUrl,
             dangerouslyAllowBrowser: true 
         });
     } else {
@@ -24,8 +29,8 @@ if (apiKey) {
 }
 
 // Models
-const GEMINI_MODEL = "gemini-2.5-flash";
-const OPENAI_MODEL = "gpt-4o"; 
+// const GEMINI_MODEL = "gemini-2.5-flash";
+// const OPENAI_MODEL = "gpt-4o"; 
 
 export const parseIntentToStep = async (
   intent: string,
@@ -66,7 +71,7 @@ export const parseIntentToStep = async (
   try {
     if (isOpenAI && openaiClient) {
         const completion = await openaiClient.chat.completions.create({
-            model: OPENAI_MODEL,
+            model: modelName,
             messages: [
                 { role: "system", content: systemPrompt },
                 { role: "user", content: userContent }
@@ -78,9 +83,9 @@ export const parseIntentToStep = async (
         return content ? JSON.parse(content) : {};
     } else if (geminiClient) {
         const response = await geminiClient.models.generateContent({
-          model: GEMINI_MODEL,
+          model: modelName,
           contents: `${systemPrompt}\n\n${userContent}`,
-          config: {
+          config: { 
             responseMimeType: "application/json",
             responseSchema: {
                 type: Type.OBJECT,
@@ -173,7 +178,7 @@ export const generateTestScript = async (
   try {
     if (isOpenAI && openaiClient) {
         const completion = await openaiClient.chat.completions.create({
-            model: OPENAI_MODEL,
+            model: modelName,
             messages: [
                 { role: "system", content: systemInstruction },
                 { role: "user", content: userPrompt }
@@ -184,7 +189,7 @@ export const generateTestScript = async (
         return text.replace(/^```typescript\n|^```\n|```$/gm, '');
     } else if (geminiClient) {
         const response = await geminiClient.models.generateContent({
-          model: GEMINI_MODEL,
+          model: modelName,
           contents: userPrompt,
           config: {
             systemInstruction: systemInstruction

@@ -1,9 +1,10 @@
-import React, { useEffect, useState } from 'react';
-import { Plus, Key, Search, Eye, FileText, MousePointerClick, Navigation, AlertCircle } from 'lucide-react';
+import { Plus, Key, Search, Eye, FileText, MousePointerClick, Navigation, AlertCircle, Package } from 'lucide-react';
 import { StepType } from '../types';
 import { load } from 'js-yaml';
 
 // --- Icon Mapping ---
+import React from 'react';
+
 const ICON_MAP: Record<string, React.ElementType> = {
   Navigation,
   Key,
@@ -11,7 +12,8 @@ const ICON_MAP: Record<string, React.ElementType> = {
   Eye,
   FileText,
   MousePointerClick,
-  AlertCircle
+  AlertCircle,
+  Package,
 };
 
 interface TemplateConfig {
@@ -22,21 +24,24 @@ interface TemplateConfig {
   description: string;
   stepData: {
     intent: string;
-    action: 'click' | 'input' | 'extract' | 'navigate' | 'wait' | 'keypress';
+    action: 'click' | 'input' | 'extract' | 'navigate' | 'wait' | 'keypress' | 'component';
     type: StepType;
+    componentId?: string;
+    componentName?: string;
   };
 }
 
 interface ComponentLibraryProps {
   onAddTemplate: (template: any) => void;
+  userComponents: any[];
 }
 
-export const ComponentLibrary: React.FC<ComponentLibraryProps> = ({ onAddTemplate }) => {
-  const [templates, setTemplates] = useState<TemplateConfig[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+export const ComponentLibrary: React.FC<ComponentLibraryProps> = ({ onAddTemplate, userComponents }) => {
+  const [templates, setTemplates] = React.useState<TemplateConfig[]>([]);
+  const [loading, setLoading] = React.useState(true);
+  const [error, setError] = React.useState<string | null>(null);
 
-  useEffect(() => {
+  React.useEffect(() => {
     const fetchTemplates = async () => {
       try {
         setLoading(true);
@@ -62,13 +67,25 @@ export const ComponentLibrary: React.FC<ComponentLibraryProps> = ({ onAddTemplat
   }, []);
 
   const handleTemplateClick = (tpl: TemplateConfig) => {
-    // Transform the config format back to what the App expects if needed,
-    // or pass it directly if App is flexible. 
-    // Here we ensure the icon isn't passed as string to App if App expects Node, 
-    // but App currently uses `template.label` and `stepData`.
-    // We just pass the config object which matches the structure App needs for logic.
     onAddTemplate(tpl);
   };
+  
+  const handleUserComponentClick = (comp: any) => {
+    const template: TemplateConfig = {
+        id: comp.id,
+        label: comp.name,
+        icon: 'Package',
+        description: `包含 ${comp.steps.length} 个步骤的自定义组件`,
+        stepData: {
+            type: StepType.COMPONENT,
+            action: 'component',
+            intent: `执行组件: ${comp.name}`,
+            componentId: comp.id,
+            componentName: comp.name
+        }
+    };
+    onAddTemplate(template);
+  }
 
   if (loading) {
     return (
@@ -98,29 +115,63 @@ export const ComponentLibrary: React.FC<ComponentLibraryProps> = ({ onAddTemplat
         <p className="text-[10px] text-slate-500 mt-1">拖拽或点击添加到流程</p>
       </div>
       
-      <div className="flex-1 overflow-y-auto p-2 space-y-2">
-        {templates.map((tpl) => {
-          const IconComponent = ICON_MAP[tpl.icon] || AlertCircle;
-          
-          return (
-            <button
-              key={tpl.id}
-              onClick={() => handleTemplateClick(tpl)}
-              className="w-full group flex items-start gap-3 p-3 rounded-md cursor-pointer transition-all bg-slate-800/40 border border-transparent hover:bg-slate-800 hover:border-slate-700 text-left"
-            >
-              <div className="mt-0.5 bg-slate-900 p-1.5 rounded border border-slate-800 group-hover:border-slate-600 transition-colors">
-                <IconComponent size={16} className={tpl.iconColor || "text-slate-400"} />
-              </div>
-              <div className="flex-1">
-                <div className="flex justify-between items-center">
-                  <span className="text-sm font-medium text-slate-300 group-hover:text-white transition-colors">{tpl.label}</span>
-                  <Plus size={14} className="opacity-0 group-hover:opacity-100 text-blue-500 transition-opacity" />
+      <div className="flex-1 overflow-y-auto p-2 space-y-4">
+        {userComponents.length > 0 && (
+            <div>
+                <h3 className="px-2 mb-2 text-xs font-semibold text-slate-400 uppercase">我的组件</h3>
+                <div className="space-y-2">
+                    {userComponents.map((comp) => {
+                      const IconComponent = ICON_MAP['Package'];
+                      return (
+                        <button
+                          key={comp.id}
+                          onClick={() => handleUserComponentClick(comp)}
+                          className="w-full group flex items-start gap-3 p-3 rounded-md cursor-pointer transition-all bg-slate-800/40 border border-transparent hover:bg-slate-800 hover:border-slate-700 text-left"
+                        >
+                          <div className="mt-0.5 bg-slate-900 p-1.5 rounded border border-slate-800 group-hover:border-slate-600 transition-colors">
+                            <IconComponent size={16} className={"text-green-400"} />
+                          </div>
+                          <div className="flex-1">
+                            <div className="flex justify-between items-center">
+                              <span className="text-sm font-medium text-slate-300 group-hover:text-white transition-colors">{comp.name}</span>
+                              <Plus size={14} className="opacity-0 group-hover:opacity-100 text-blue-500 transition-opacity" />
+                            </div>
+                            <p className="text-[10px] text-slate-500 mt-0.5">包含 {comp.steps.length} 个步骤</p>
+                          </div>
+                        </button>
+                      );
+                    })}
                 </div>
-                <p className="text-[10px] text-slate-500 mt-0.5">{tpl.description}</p>
-              </div>
-            </button>
-          );
-        })}
+            </div>
+        )}
+
+        <div>
+            <h3 className="px-2 mb-2 text-xs font-semibold text-slate-400 uppercase">预设模板</h3>
+            <div className="space-y-2">
+                {templates.map((tpl) => {
+                  const IconComponent = ICON_MAP[tpl.icon] || AlertCircle;
+                  
+                  return (
+                    <button
+                      key={tpl.id}
+                      onClick={() => handleTemplateClick(tpl)}
+                      className="w-full group flex items-start gap-3 p-3 rounded-md cursor-pointer transition-all bg-slate-800/40 border border-transparent hover:bg-slate-800 hover:border-slate-700 text-left"
+                    >
+                      <div className="mt-0.5 bg-slate-900 p-1.5 rounded border border-slate-800 group-hover:border-slate-600 transition-colors">
+                        <IconComponent size={16} className={tpl.iconColor || "text-slate-400"} />
+                      </div>
+                      <div className="flex-1">
+                        <div className="flex justify-between items-center">
+                          <span className="text-sm font-medium text-slate-300 group-hover:text-white transition-colors">{tpl.label}</span>
+                          <Plus size={14} className="opacity-0 group-hover:opacity-100 text-blue-500 transition-opacity" />
+                        </div>
+                        <p className="text-[10px] text-slate-500 mt-0.5">{tpl.description}</p>
+                      </div>
+                    </button>
+                  );
+                })}
+            </div>
+        </div>
       </div>
     </div>
   );

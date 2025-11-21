@@ -5,10 +5,11 @@ import { ComponentLibrary } from './components/ComponentLibrary';
 import { BrowserPreview } from './components/BrowserPreview';
 import { CodePanel } from './components/CodePanel';
 import { FlowGraph } from './components/FlowGraph';
-import { EditStepModal } from './components/EditStepModal'; // Import Modal
+import { EditStepModal } from './components/EditStepModal';
+import { ActionMenu } from './components/ActionMenu';
 import { generateTestScript, parseIntentToStep } from './services/aiService';
-import { Step, ScriptMode, StepType } from './types';
-import { Play, Square, Download, Sparkles, Zap, Layout, Code, Bot, Settings, AlertTriangle, List, Package } from 'lucide-react';
+import { Step, ScriptMode, StepType, StepTarget } from './types';
+import { Play, Square, Download, Sparkles, Zap, Layout, Code, Bot, Settings, AlertTriangle, List, Package, Target } from 'lucide-react';
 
 // Constants
 const INITIAL_URL = "https://example-shop.com";
@@ -20,7 +21,7 @@ export const App: React.FC = () => {
   const [activeStepId, setActiveStepId] = useState<string | null>(null);
   const [mode, setMode] = useState<ScriptMode>(ScriptMode.DYNAMIC);
   const [generatedCode, setGeneratedCode] = useState<string>("// 生成的代码将显示在这里...");
-  const [isRecording, setIsRecording] = useState(false);
+  const [isInspecting, setIsInspecting] = useState(false);
   const [isLoadingCode, setIsLoadingCode] = useState(false);
   const [aiInput, setAiInput] = useState("");
   const [activeMainTab, setActiveMainTab] = useState<'live' | 'flow'>('live');
@@ -29,6 +30,16 @@ export const App: React.FC = () => {
   
   // Editing State
   const [editingStep, setEditingStep] = useState<Step | null>(null);
+
+  // Action Menu State
+  const [selectedElement, setSelectedElement] = useState<StepTarget | null>(null);
+  const [isActionMenuOpen, setIsActionMenuOpen] = useState(false);
+
+  // Step Selection State
+  const [selectedStepIds, setSelectedStepIds] = useState<string[]>([]);
+
+  // User Components State
+  const [userComponents, setUserComponents] = useState<any[]>([]);
 
   // Check for API Key on mount
   useEffect(() => {
@@ -56,18 +67,59 @@ export const App: React.FC = () => {
   }, [steps, mode]);
 
   // Handlers
-  const handleRecordToggle = () => {
-    const nextState = !isRecording;
-    setIsRecording(nextState);
+  const handleInspectToggle = () => {
+    const nextState = !isInspecting;
+    setIsInspecting(nextState);
     if (nextState) {
-        // If starting record, ensure we are on the live preview and step list
+        // If starting inspect, ensure we are on the live preview
         setActiveMainTab('live');
-        setActiveSidebarTab('steps');
     }
   };
 
   const handleStepClick = (step: Step) => {
     setActiveStepId(step.id);
+  };
+  
+  const handleToggleStepSelection = (stepId: string) => {
+    setSelectedStepIds(prev =>
+      prev.includes(stepId)
+        ? prev.filter(id => id !== stepId)
+        : [...prev, stepId]
+    );
+  };
+
+  const handleExtractComponent = () => {
+    const componentName = window.prompt("请输入组件名称:");
+    if (!componentName || componentName.trim() === '') return;
+
+    const selectedSteps = steps.filter(step => selectedStepIds.includes(step.id));
+    if (selectedSteps.length < 2) return;
+
+    const newComponent = {
+      id: `comp-${Date.now()}`,
+      name: componentName,
+      steps: selectedSteps,
+    };
+
+    setUserComponents(prev => [...prev, newComponent]);
+
+    const newComponentStep: Step = {
+      id: `step-${Date.now()}`,
+      type: StepType.COMPONENT,
+      action: 'component',
+      intent: `执行组件: ${componentName}`,
+      componentId: newComponent.id,
+      componentName: newComponent.name,
+      status: 'pending',
+    };
+
+    const firstSelectedIndex = steps.findIndex(step => step.id === selectedStepIds[0]);
+    const stepsWithoutSelected = steps.filter(step => !selectedStepIds.includes(step.id));
+    
+    stepsWithoutSelected.splice(firstSelectedIndex, 0, newComponentStep);
+    
+    setSteps(stepsWithoutSelected);
+    setSelectedStepIds([]);
   };
 
   const handleDeleteStep = (id: string) => {
@@ -170,27 +222,60 @@ export const App: React.FC = () => {
     } as Step : s));
   };
 
-  const handleElementRecorded = (actionData: any) => {
-    // actionData comes from BrowserPreview's Action Menu or Click
-    // Structure: { action, intent, type, target: { label, id, text }, params? }
+  const handleElementSelected = (elementData: any) => {
+    // Called from BrowserPreview when an element is selected in inspect mode
+    setIsInspecting(false);
+    setSelectedElement(elementData.target);
+    setIsActionMenuOpen(true);
+  };
+
+  const handleCloseActionMenu = () => {
+    setIsActionMenuOpen(false);
+    setSelectedElement(null);
+  };
+
+  const handleActionSelected = (action: 'click' | 'input' | 'assertVisible' | 'assertText') => {
+    if (!selectedElement) return;
+
+    let type = StepType.INTERACTION;
+    let intent = `${action} on ${selectedElement.description}`;
+    let newAction: Step['action'] = 'click';
+    
+    switch (action) {
+      case 'click':
+        newAction = 'click';
+        intent = `点击 ${selectedElement.description}`;
+        break;
+      case 'input':
+        newAction = 'input';
+        intent = `在 ${selectedElement.description} 中输入值`;
+        // This might require a subsequent modal to get the value, for now, we'll use a placeholder
+        break;
+      case 'assertVisible':
+        newAction = 'wait'; // 'wait' can be used for assertions
+        type = StepType.VERIFICATION;
+        intent = `验证 ${selectedElement.description} 可见`;
+        break;
+      case 'assertText':
+        newAction = 'wait'; // 'wait' can be used for assertions
+        type = StepType.VERIFICATION;
+        intent = `验证 ${selectedElement.description} 的文本`;
+        // This might require a subsequent modal to get the value, for now, we'll use a placeholder
+        break;
+    }
 
     const newStep: Step = {
       id: Math.random().toString(36).substr(2, 9),
-      type: actionData.type || StepType.INTERACTION,
-      intent: actionData.intent || `${actionData.action} ${actionData.target?.label}`,
-      action: actionData.action,
-      target: {
-        description: actionData.target?.label,
-        selectors: {
-          precise: actionData.target?.id ? `#${actionData.target.id}` : '',
-          semantic: actionData.target?.text
-        }
-      },
-      params: actionData.params,
+      type: type,
+      intent: intent,
+      action: newAction,
+      target: selectedElement,
+      params: {},
       status: 'success'
     };
     setSteps([...steps, newStep]);
     setActiveSidebarTab('steps');
+    handleCloseActionMenu();
   };
 
   // Handle URL changes from the header input
@@ -201,6 +286,13 @@ export const App: React.FC = () => {
   return (
     <div className="flex flex-col h-screen bg-slate-950 text-slate-100 overflow-hidden font-sans selection:bg-blue-500/30">
       
+      <ActionMenu
+        isOpen={isActionMenuOpen}
+        target={selectedElement}
+        onClose={handleCloseActionMenu}
+        onActionSelect={handleActionSelected}
+      />
+
       <EditStepModal 
         isOpen={!!editingStep}
         step={editingStep}
@@ -228,16 +320,16 @@ export const App: React.FC = () => {
              </div>
            )}
            <button 
-             onClick={handleRecordToggle}
+             onClick={handleInspectToggle}
              className={`
                flex items-center gap-2 px-3 py-1.5 rounded text-xs font-medium transition-all
-               ${isRecording 
-                 ? 'bg-red-500/10 text-red-400 border border-red-500/50 animate-pulse' 
+               ${isInspecting 
+                 ? 'bg-blue-500/10 text-blue-400 border border-blue-500/50 animate-pulse' 
                  : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700'}
              `}
            >
-             {isRecording ? <Square size={14} fill="currentColor" /> : <Play size={14} fill="currentColor" />}
-             {isRecording ? '停止录制' : '开始录制'}
+             <Target size={14} />
+             {isInspecting ? '停止选择' : '选择元素'}
            </button>
            <button className="flex items-center gap-2 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded text-xs font-medium shadow-lg shadow-blue-900/20 transition-colors">
              <Download size={14} />
@@ -270,18 +362,29 @@ export const App: React.FC = () => {
            </div>
 
            <div className="flex-1 overflow-hidden relative">
+             <div className="p-2 border-b border-slate-800 bg-slate-900/50 h-14 flex items-center">
+                <button
+                    onClick={handleExtractComponent}
+                    disabled={selectedStepIds.length < 2}
+                    className="flex items-center gap-2 px-3 py-1.5 rounded text-xs font-medium transition-all bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                    提取为组件
+                </button>
+             </div>
              {activeSidebarTab === 'steps' ? (
                 <StepList 
                   steps={steps} 
                   activeStepId={activeStepId}
+                  selectedStepIds={selectedStepIds}
                   onStepClick={handleStepClick}
+                  onToggleStepSelection={handleToggleStepSelection}
                   onDeleteStep={handleDeleteStep}
                   onRunStep={handleRunStep}
                   onMoveStep={handleMoveStep}
                   onEditStep={handleEditStep}
                 />
              ) : (
-                <ComponentLibrary onAddTemplate={handleAddTemplate} />
+                <ComponentLibrary onAddTemplate={handleAddTemplate} userComponents={userComponents} />
              )}
            </div>
         </aside>
@@ -312,8 +415,8 @@ export const App: React.FC = () => {
                <BrowserPreview 
                  url={url} 
                  onUrlChange={handleUrlChange}
-                 onElementClick={handleElementRecorded}
-                 isRecording={isRecording}
+                 onElementSelect={handleElementSelected}
+                 isInspecting={isInspecting}
                />
              ) : (
                <FlowGraph steps={steps} />
