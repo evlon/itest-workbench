@@ -470,6 +470,8 @@ export const App: React.FC = () => {
                  onElementSelect={handleElementSelected}
                  isInspecting={isInspecting}
                  screenshotBase64={screenshotBase64}
+                 sessionId={sessionId || undefined}
+                 isStreaming={isStreaming}
               />
              ) : (
                <FlowGraph steps={steps} />

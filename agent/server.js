@@ -1,6 +1,8 @@
 import http from 'http'
 import url from 'url'
 import { chromium } from 'playwright'
+import { WebSocketServer } from 'ws'
+import { createHash } from 'crypto'
 
 const PORT = process.env.PORT ? Number(process.env.PORT) : 3000
 
@@ -9,10 +11,19 @@ const sessions = new Map()
 async function captureAndBroadcast(session) {
   try {
     const buf = await session.page.screenshot({ type: 'jpeg', quality: 60 })
-    const base64 = buf.toString('base64')
-    session.lastScreenshot = base64
-    for (const client of session.clients) {
-      writeEvent(client, 'screenshot', { base64, timestamp: Date.now() })
+    const hash = createHash('md5').update(buf).digest('hex')
+    if (hash !== session.lastHash) {
+      session.lastHash = hash
+      const base64 = buf.toString('base64')
+      session.lastScreenshot = base64
+      for (const client of session.clients) {
+        writeEvent(client, 'screenshot', { base64, timestamp: Date.now() })
+      }
+      for (const ws of session.wsClients) {
+        if (ws.readyState === 1) {
+          try { ws.send(buf) } catch {}
+        }
+      }
     }
   } catch {}
 }
@@ -128,9 +139,11 @@ const server = http.createServer(async (req, res) => {
       context,
       page,
       lastScreenshot: shot,
+      lastHash: '',
       streamTimer: null,
       streamIntervalMs: 1000,
       streamEnabled: false,
+      wsClients: new Set(),
     })
     return sendJson(res, 200, { sessionId })
   }
@@ -178,9 +191,21 @@ const server = http.createServer(async (req, res) => {
       }
     } catch {}
     let shot = ''
-    try { shot = (await page.screenshot({ fullPage: true }))?.toString('base64') || '' } catch {}
-    session.lastScreenshot = shot
-    for (const client of session.clients) writeEvent(client, 'screenshot', { base64: shot, timestamp: Date.now() })
+    try {
+      const buf = await page.screenshot({ fullPage: true, type: 'jpeg', quality: 60 })
+      const hash = createHash('md5').update(buf).digest('hex')
+      if (hash !== session.lastHash) {
+        session.lastHash = hash
+        shot = buf.toString('base64')
+        session.lastScreenshot = shot
+        for (const client of session.clients) writeEvent(client, 'screenshot', { base64: shot, timestamp: Date.now() })
+        for (const ws of session.wsClients) {
+          if (ws.readyState === 1) {
+            try { ws.send(buf) } catch {}
+          }
+        }
+      }
+    } catch {}
     for (const client of session.clients) writeEvent(client, 'dom-update', { html_snippet: '<div>mock</div>', interactive_elements: [] })
     for (const client of session.clients) writeEvent(client, 'action-complete', { status: 'success', result: {} })
     return sendJson(res, 200, { status: 'processing' })
@@ -239,6 +264,29 @@ const server = http.createServer(async (req, res) => {
   }
 
   sendJson(res, 404, { error: 'not_found' })
+})
+
+// WebSocket upgrade handling
+const wss = new WebSocketServer({ noServer: true })
+
+server.on('upgrade', (req, socket, head) => {
+  const parsed = url.parse(req.url, true)
+  if ((parsed.pathname || '') !== '/ws') {
+    socket.destroy()
+    return
+  }
+  wss.handleUpgrade(req, socket, head, (ws) => {
+    const sessionId = parsed.query.sessionId
+    if (!sessionId || !sessions.has(sessionId)) {
+      try { ws.close(1008, 'invalid_session') } catch {}
+      return
+    }
+    const session = sessions.get(sessionId)
+    session.wsClients.add(ws)
+    ws.on('close', () => {
+      session.wsClients.delete(ws)
+    })
+  })
 })
 
 server.listen(PORT)

@@ -7,6 +7,8 @@ interface BrowserPreviewProps {
   onElementSelect: (elementData: any) => void;
   isInspecting: boolean;
   screenshotBase64?: string;
+  sessionId?: string;
+  isStreaming?: boolean;
 }
 
 /**
@@ -18,10 +20,12 @@ interface BrowserPreviewProps {
  * which would then return the results. For this simulation, we are faking
  * these interactions and the returned data.
  */
-export const BrowserPreview: React.FC<BrowserPreviewProps> = ({ url, onUrlChange, onElementSelect, isInspecting, screenshotBase64 }) => {
+export const BrowserPreview: React.FC<BrowserPreviewProps> = ({ url, onUrlChange, onElementSelect, isInspecting, screenshotBase64, sessionId, isStreaming }) => {
   const [inputUrl, setInputUrl] = useState(url);
   const [isLoading, setIsLoading] = useState(true);
   const viewportRef = useRef<HTMLDivElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const wsRef = useRef<WebSocket | null>(null);
 
   // Simulate loading the remote browser session
   useEffect(() => {
@@ -31,6 +35,62 @@ export const BrowserPreview: React.FC<BrowserPreviewProps> = ({ url, onUrlChange
     }, 1200); // Fake connection delay
     return () => clearTimeout(timer);
   }, [url]);
+
+  // WS + Canvas rendering for low-latency frames
+  useEffect(() => {
+    const agentUrl = (import.meta as any).env?.VITE_AGENT_URL || 'http://localhost:3000'
+    const wsScheme = agentUrl.startsWith('https') ? 'wss' : 'ws'
+    const wsUrl = `${wsScheme}://${agentUrl.replace(/^https?:\/\//, '')}/ws?sessionId=${sessionId}`
+
+    const canvas = canvasRef.current
+    const viewport = viewportRef.current
+    if (!canvas || !viewport) return
+
+    const resize = () => {
+      const w = viewport.clientWidth
+      const h = viewport.clientHeight
+      if (w > 0 && h > 0) {
+        canvas.width = w
+        canvas.height = h
+      }
+    }
+    resize()
+    const resizeObserver = new ResizeObserver(() => resize())
+    resizeObserver.observe(viewport)
+
+    if (sessionId && isStreaming) {
+      try {
+        const ws = new WebSocket(wsUrl)
+        ws.binaryType = 'arraybuffer'
+        wsRef.current = ws
+        ws.onopen = () => {}
+        ws.onmessage = async (ev) => {
+          const data = ev.data as ArrayBuffer
+          if (!data) return
+          const blob = new Blob([data], { type: 'image/jpeg' })
+          try {
+            const bmp = await createImageBitmap(blob)
+            const ctx = canvas.getContext('2d')
+            if (ctx) {
+              ctx.clearRect(0, 0, canvas.width, canvas.height)
+              ctx.drawImage(bmp, 0, 0, canvas.width, canvas.height)
+              setIsLoading(false)
+            }
+          } catch {}
+        }
+        ws.onclose = () => {}
+        ws.onerror = () => {}
+      } catch {}
+    }
+
+    return () => {
+      resizeObserver.disconnect()
+      if (wsRef.current) {
+        try { wsRef.current.close() } catch {}
+        wsRef.current = null
+      }
+    }
+  }, [sessionId, isStreaming])
 
   const handleUrlSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -111,7 +171,9 @@ export const BrowserPreview: React.FC<BrowserPreviewProps> = ({ url, onUrlChange
                   </div>
                 </div>
               )}
-              {screenshotBase64 ? (
+              {isStreaming ? (
+                <canvas ref={canvasRef} className="w-full h-full" />
+              ) : screenshotBase64 ? (
                 <img src={`data:image/png;base64,${screenshotBase64}`} alt="preview" className="w-full h-full object-contain" />
               ) : (
                 <div className="w-full h-full flex items-center justify-center text-slate-400">无预览</div>
