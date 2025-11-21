@@ -45,6 +45,24 @@ export const observe = async (sessionId: string, instruction: string) => {
   return res.json()
 }
 
+export const startStream = async (sessionId: string, intervalMs?: number) => {
+  const res = await fetch(`${BASE_URL}/stream/start`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sessionId, intervalMs })
+  })
+  return res.json()
+}
+
+export const stopStream = async (sessionId: string) => {
+  const res = await fetch(`${BASE_URL}/stream/stop`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sessionId })
+  })
+  return res.json()
+}
+
 export const subscribeEvents = (sessionId: string, handlers: {
   onLog?: (data: any) => void,
   onDomUpdate?: (data: any) => void,

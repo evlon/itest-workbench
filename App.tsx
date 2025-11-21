@@ -9,12 +9,12 @@ import { EditStepModal } from './components/EditStepModal';
 import { ActionMenu } from './components/ActionMenu';
 import { generateTestScript, parseIntentToStepRefined } from './services/aiService';
 import { refineStepTarget, getBestStaticSelectorForStep } from './services/selectorRefiner';
-import { startSession, subscribeEvents, exec as agentExec, act as agentAct, observe as agentObserve } from './services/agentClient';
+import { startSession, subscribeEvents, exec as agentExec, act as agentAct, observe as agentObserve, startStream as agentStartStream, stopStream as agentStopStream } from './services/agentClient';
 import { Step, ScriptMode, StepType, StepTarget } from './types';
 import { Play, Square, Download, Sparkles, Zap, Layout, Code, Bot, Settings, AlertTriangle, List, Package, Target } from 'lucide-react';
 
 // Constants
-const INITIAL_URL = "https://example-shop.com";
+const INITIAL_URL = "http://localhost:3000/test.html";
 
 export const App: React.FC = () => {
   // State
@@ -33,6 +33,7 @@ export const App: React.FC = () => {
   const [screenshotBase64, setScreenshotBase64] = useState<string | undefined>(undefined);
   const [interactiveElements, setInteractiveElements] = useState<any[]>([]);
   const [lastRecordingStepId, setLastRecordingStepId] = useState<string | null>(null);
+  const [isStreaming, setIsStreaming] = useState(false);
   
   // Editing State
   const [editingStep, setEditingStep] = useState<Step | null>(null);
@@ -56,7 +57,7 @@ export const App: React.FC = () => {
 
   useEffect(() => {
     const init = async () => {
-      const res = await startSession(url, false);
+      const res = await startSession(url, true);
       setSessionId(res.sessionId);
     };
     init();
@@ -310,6 +311,20 @@ export const App: React.FC = () => {
   // Handle URL changes from the header input
   const handleUrlChange = (newUrl: string) => {
       setUrl(newUrl);
+      if (sessionId) {
+        agentExec(sessionId, newUrl, 'navigate');
+      }
+  };
+
+  const handleToggleStreaming = async () => {
+    if (!sessionId) return;
+    if (isStreaming) {
+      await agentStopStream(sessionId);
+      setIsStreaming(false);
+    } else {
+      await agentStartStream(sessionId, 1000);
+      setIsStreaming(true);
+    }
   };
 
   return (
@@ -436,6 +451,14 @@ export const App: React.FC = () => {
               <Settings size={14} />
               流程图谱
             </button>
+            <div className="ml-auto flex items-center gap-2">
+              <button 
+                onClick={handleToggleStreaming}
+                className={`text-xs font-medium px-2 py-1 rounded border ${isStreaming ? 'border-green-600 text-green-400 bg-green-500/10' : 'border-slate-700 text-slate-300 bg-slate-800 hover:bg-slate-700'}`}
+              >
+                {isStreaming ? '流式预览：开' : '流式预览：关'}
+              </button>
+            </div>
           </div>
 
           {/* Viewport */}

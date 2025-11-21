@@ -1,9 +1,21 @@
 import http from 'http'
 import url from 'url'
+import { chromium } from 'playwright'
 
 const PORT = process.env.PORT ? Number(process.env.PORT) : 3000
 
 const sessions = new Map()
+
+async function captureAndBroadcast(session) {
+  try {
+    const buf = await session.page.screenshot({ type: 'jpeg', quality: 60 })
+    const base64 = buf.toString('base64')
+    session.lastScreenshot = base64
+    for (const client of session.clients) {
+      writeEvent(client, 'screenshot', { base64, timestamp: Date.now() })
+    }
+  } catch {}
+}
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -65,8 +77,11 @@ const server = http.createServer(async (req, res) => {
     const session = sessions.get(sessionId)
     session.clients.add(res)
     writeEvent(res, 'log', { level: 'info', message: 'connected', timestamp: Date.now() })
-    writeEvent(res, 'screenshot', { base64: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGNgYAAAAAMAASsJTYQAAAAASUVORK5CYII=', timestamp: Date.now() })
+    if (session.lastScreenshot) writeEvent(res, 'screenshot', { base64: session.lastScreenshot, timestamp: Date.now() })
     writeEvent(res, 'dom-update', { html_snippet: '<div>preview</div>', interactive_elements: [] })
+    if (session.streamEnabled && !session.streamTimer) {
+      session.streamTimer = setInterval(() => captureAndBroadcast(session), session.streamIntervalMs || 1000)
+    }
     if (!session.pingInterval) {
       session.pingInterval = setInterval(() => {
         for (const client of session.clients) {
@@ -76,9 +91,15 @@ const server = http.createServer(async (req, res) => {
     }
     req.on('close', () => {
       session.clients.delete(res)
-      if (session.clients.size === 0 && session.pingInterval) {
-        clearInterval(session.pingInterval)
-        session.pingInterval = null
+      if (session.clients.size === 0) {
+        if (session.pingInterval) {
+          clearInterval(session.pingInterval)
+          session.pingInterval = null
+        }
+        if (session.streamTimer) {
+          clearInterval(session.streamTimer)
+          session.streamTimer = null
+        }
       }
     })
     return
@@ -87,12 +108,29 @@ const server = http.createServer(async (req, res) => {
   if (req.method === 'POST' && pathname === '/session/start') {
     const body = await parseBody(req)
     const sessionId = genId()
+    const urlToOpen = body.url || ''
+    const headless = true
+    const browser = await chromium.launch({ headless })
+    const context = await browser.newContext()
+    const page = await context.newPage()
+    if (urlToOpen) {
+      try { await page.goto(urlToOpen, { waitUntil: 'load', timeout: 15000 }) } catch {}
+    }
+    let shot = ''
+    try { shot = (await page.screenshot({ fullPage: true }))?.toString('base64') || '' } catch {}
     sessions.set(sessionId, {
       id: sessionId,
-      url: body.url || '',
-      headless: !!body.headless,
+      url: urlToOpen,
+      headless,
       clients: new Set(),
       pingInterval: null,
+      browser,
+      context,
+      page,
+      lastScreenshot: shot,
+      streamTimer: null,
+      streamIntervalMs: 1000,
+      streamEnabled: false,
     })
     return sendJson(res, 200, { sessionId })
   }
@@ -104,6 +142,10 @@ const server = http.createServer(async (req, res) => {
     if (session) {
       for (const client of session.clients) client.end()
       if (session.pingInterval) clearInterval(session.pingInterval)
+      if (session.streamTimer) { clearInterval(session.streamTimer); session.streamTimer = null }
+      try { await session.page?.close() } catch {}
+      try { await session.context?.close() } catch {}
+      try { await session.browser?.close() } catch {}
       sessions.delete(sessionId)
     }
     return sendJson(res, 200, { status: 'ok' })
@@ -126,13 +168,48 @@ const server = http.createServer(async (req, res) => {
     const body = await parseBody(req)
     const session = sessions.get(body.sessionId)
     if (!session) return sendJson(res, 400, { error: 'invalid_session' })
+    const page = session.page
     for (const client of session.clients) writeEvent(client, 'log', { level: 'info', message: `exec: ${body.method} ${body.selector}`, timestamp: Date.now() })
-    setTimeout(() => {
-      for (const client of session.clients) writeEvent(client, 'screenshot', { base64: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGNgYAAAAAMAASsJTYQAAAAASUVORK5CYII=', timestamp: Date.now() })
-      for (const client of session.clients) writeEvent(client, 'dom-update', { html_snippet: '<div>mock</div>', interactive_elements: [] })
-      for (const client of session.clients) writeEvent(client, 'action-complete', { status: 'success', result: {} })
-    }, 300)
+    try {
+      if (body.method === 'navigate' && body.selector) {
+        await page.goto(body.selector, { waitUntil: 'load', timeout: 15000 })
+      } else if (body.method === 'click' && body.selector) {
+        await page.locator(body.selector).first().click({ timeout: 3000 })
+      }
+    } catch {}
+    let shot = ''
+    try { shot = (await page.screenshot({ fullPage: true }))?.toString('base64') || '' } catch {}
+    session.lastScreenshot = shot
+    for (const client of session.clients) writeEvent(client, 'screenshot', { base64: shot, timestamp: Date.now() })
+    for (const client of session.clients) writeEvent(client, 'dom-update', { html_snippet: '<div>mock</div>', interactive_elements: [] })
+    for (const client of session.clients) writeEvent(client, 'action-complete', { status: 'success', result: {} })
     return sendJson(res, 200, { status: 'processing' })
+  }
+
+  if (req.method === 'POST' && pathname === '/stream/start') {
+    const body = await parseBody(req)
+    const session = sessions.get(body.sessionId)
+    if (!session) return sendJson(res, 400, { error: 'invalid_session' })
+    session.streamEnabled = true
+    if (typeof body.intervalMs === 'number' && body.intervalMs >= 250) {
+      session.streamIntervalMs = body.intervalMs
+    }
+    if (!session.streamTimer) {
+      session.streamTimer = setInterval(() => captureAndBroadcast(session), session.streamIntervalMs || 1000)
+    }
+    return sendJson(res, 200, { status: 'ok', intervalMs: session.streamIntervalMs })
+  }
+
+  if (req.method === 'POST' && pathname === '/stream/stop') {
+    const body = await parseBody(req)
+    const session = sessions.get(body.sessionId)
+    if (!session) return sendJson(res, 400, { error: 'invalid_session' })
+    session.streamEnabled = false
+    if (session.streamTimer) {
+      clearInterval(session.streamTimer)
+      session.streamTimer = null
+    }
+    return sendJson(res, 200, { status: 'ok' })
   }
 
   if (req.method === 'POST' && pathname === '/action/observe') {
@@ -152,6 +229,13 @@ const server = http.createServer(async (req, res) => {
     const provider = modelName.split('/')[0] || ''
     const model = modelName.split('/')[1] || ''
     return sendJson(res, 200, { provider, model })
+  }
+
+  if (req.method === 'GET' && pathname === '/test.html') {
+    Object.entries(corsHeaders).forEach(([k, v]) => res.setHeader(k, v))
+    res.setHeader('Content-Type', 'text/html')
+    res.statusCode = 200
+    return res.end(`<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><title>测试页面</title><style>body{font-family:system-ui,Arial;padding:20px}section{margin-bottom:24px}label{display:block;margin-bottom:8px}</style></head><body><h1>工作台测试页面</h1><section><label>搜索：<input name="q" placeholder="输入关键词" /></label><button id="submit">提交</button></section><section><label for="category">类别：</label><select id="category"><option>手机</option><option>电脑</option><option>家电</option></select></section><section><label><input type="checkbox" id="agree"/> 我已阅读并同意</label></section><section><a href="#" aria-label="帮助">帮助链接</a></section></body></html>`)
   }
 
   sendJson(res, 404, { error: 'not_found' })
