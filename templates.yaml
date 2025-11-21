@@ -1,0 +1,59 @@
+- id: nav
+  label: 页面导航
+  icon: Navigation
+  iconColor: text-blue-400
+  description: 跳转到指定 URL
+  stepData:
+    intent: 导航到目标页面
+    action: navigate
+    type: navigation
+
+- id: login
+  label: 标准登录
+  icon: Key
+  iconColor: text-yellow-400
+  description: 输入用户名/密码并提交
+  stepData:
+    intent: 输入用户名 admin 和密码 123456 并点击登录
+    action: input
+    type: interaction
+
+- id: search
+  label: 全局搜索
+  icon: Search
+  iconColor: text-purple-400
+  description: 使用搜索框查找内容
+  stepData:
+    intent: 在搜索框输入关键词并回车
+    action: input
+    type: interaction
+
+- id: verify_text
+  label: 文本断言
+  icon: Eye
+  iconColor: text-green-400
+  description: 验证页面是否存在某文本
+  stepData:
+    intent: 验证页面包含文本 "操作成功"
+    action: wait
+    type: verification
+
+- id: extract_list
+  label: 列表提取
+  icon: FileText
+  iconColor: text-orange-400
+  description: 结构化提取列表数据
+  stepData:
+    intent: 提取所有商品名称和价格
+    action: extract
+    type: interaction
+
+- id: click_btn
+  label: 通用点击
+  icon: MousePointerClick
+  iconColor: text-pink-400
+  description: 点击页面上的主要按钮
+  stepData:
+    intent: 点击提交按钮
+    action: click
+    type: interaction
