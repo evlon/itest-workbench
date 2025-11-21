@@ -1,6 +1,7 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import OpenAI from "openai";
 import { Step, ScriptMode } from "../types";
+import { refineStepTarget, getBestStaticSelectorForStep } from './selectorRefiner';
 
 const MODEL_NAME = import.meta.env.VITE_MODEL_NAME || '';
 const LLM_TYPE = MODEL_NAME.split('/')[0];
@@ -117,7 +118,7 @@ export const parseIntentToStep = async (
           }
         }
       });
-      if (response.text) {
+        if (response.text) {
         return JSON.parse(response.text);
       }
     }
@@ -134,6 +135,19 @@ export const parseIntentToStep = async (
   }
 };
 
+export const parseIntentToStepRefined = async (
+  intent: string,
+  currentUrl: string,
+  pageContextHtml: string
+): Promise<Partial<Step>> => {
+  const res = await parseIntentToStep(intent, currentUrl, pageContextHtml)
+  if (res && (res as any).target) {
+    const refined = refineStepTarget((res as any).target)
+    ;(res as any).target = refined
+  }
+  return res
+}
+
 export const generateTestScript = async (
   steps: Step[],
   mode: ScriptMode
@@ -143,7 +157,7 @@ export const generateTestScript = async (
   const stepsJson = JSON.stringify(steps.map(s => ({
     intent: s.intent,
     action: s.action,
-    selector: s.target?.selectors?.precise,
+    selector: mode === ScriptMode.STATIC ? getBestStaticSelectorForStep(s) : s.target?.selectors?.precise,
     params: s.params
   })));
 

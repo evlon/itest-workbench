@@ -65,6 +65,8 @@ const server = http.createServer(async (req, res) => {
     const session = sessions.get(sessionId)
     session.clients.add(res)
     writeEvent(res, 'log', { level: 'info', message: 'connected', timestamp: Date.now() })
+    writeEvent(res, 'screenshot', { base64: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGNgYAAAAAMAASsJTYQAAAAASUVORK5CYII=', timestamp: Date.now() })
+    writeEvent(res, 'dom-update', { html_snippet: '<div>preview</div>', interactive_elements: [] })
     if (!session.pingInterval) {
       session.pingInterval = setInterval(() => {
         for (const client of session.clients) {
@@ -113,7 +115,7 @@ const server = http.createServer(async (req, res) => {
     if (!session) return sendJson(res, 400, { error: 'invalid_session' })
     for (const client of session.clients) writeEvent(client, 'log', { level: 'info', message: `act: ${body.action}`, timestamp: Date.now() })
     setTimeout(() => {
-      for (const client of session.clients) writeEvent(client, 'screenshot', { base64: 'iVBORw0KGgo', timestamp: Date.now() })
+      for (const client of session.clients) writeEvent(client, 'screenshot', { base64: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGNgYAAAAAMAASsJTYQAAAAASUVORK5CYII=', timestamp: Date.now() })
       for (const client of session.clients) writeEvent(client, 'dom-update', { html_snippet: '<div>mock</div>', interactive_elements: [] })
       for (const client of session.clients) writeEvent(client, 'action-complete', { status: 'success', result: {} })
     }, 300)
@@ -126,7 +128,7 @@ const server = http.createServer(async (req, res) => {
     if (!session) return sendJson(res, 400, { error: 'invalid_session' })
     for (const client of session.clients) writeEvent(client, 'log', { level: 'info', message: `exec: ${body.method} ${body.selector}`, timestamp: Date.now() })
     setTimeout(() => {
-      for (const client of session.clients) writeEvent(client, 'screenshot', { base64: 'iVBORw0KGgo', timestamp: Date.now() })
+      for (const client of session.clients) writeEvent(client, 'screenshot', { base64: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGNgYAAAAAMAASsJTYQAAAAASUVORK5CYII=', timestamp: Date.now() })
       for (const client of session.clients) writeEvent(client, 'dom-update', { html_snippet: '<div>mock</div>', interactive_elements: [] })
       for (const client of session.clients) writeEvent(client, 'action-complete', { status: 'success', result: {} })
     }, 300)

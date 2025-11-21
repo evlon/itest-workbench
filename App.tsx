@@ -7,7 +7,7 @@ import { CodePanel } from './components/CodePanel';
 import { FlowGraph } from './components/FlowGraph';
 import { EditStepModal } from './components/EditStepModal';
 import { ActionMenu } from './components/ActionMenu';
-import { generateTestScript, parseIntentToStep } from './services/aiService';
+import { generateTestScript, parseIntentToStepRefined } from './services/aiService';
 import { startSession, subscribeEvents, exec as agentExec, act as agentAct, observe as agentObserve } from './services/agentClient';
 import { Step, ScriptMode, StepType, StepTarget } from './types';
 import { Play, Square, Download, Sparkles, Zap, Layout, Code, Bot, Settings, AlertTriangle, List, Package, Target } from 'lucide-react';
@@ -201,7 +201,7 @@ export const App: React.FC = () => {
       setActiveSidebarTab('steps');
       
       // Auto-trigger intent parsing for templated steps to fill in details
-      parseIntentToStep(newStep.intent, url, "").then(parsed => {
+      parseIntentToStepRefined(newStep.intent, url, "").then(parsed => {
            setSteps(prev => prev.map(s => s.id === newStep.id ? { ...s, ...parsed, status: 'success' } : s));
       });
       
@@ -230,7 +230,7 @@ export const App: React.FC = () => {
     setAiInput("");
     setActiveSidebarTab('steps');
 
-    const parsedStep = await parseIntentToStep(intentCache, url, "<html>Mock Context</html>");
+    const parsedStep = await parseIntentToStepRefined(intentCache, url, "<html>Mock Context</html>");
     
     setSteps(prev => prev.map(s => s.id === tempId ? {
       ...s,

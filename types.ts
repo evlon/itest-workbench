@@ -16,6 +16,8 @@ export interface StepTarget {
   selectors: {
     precise: string; // CSS/XPath
     semantic?: string; // Aria-label, etc.
+    xpath?: string;
+    text?: string;
   };
 }
 

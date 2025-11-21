@@ -61,7 +61,8 @@
   - 在静态模式代码生成前应用优化管道及回退策略。
 - 预计完成时间：2025-12-06（4 天）
 - 优先级标记：高
-- 状态：【待办】
+- 状态：【完成】（完成日期：2025-11-21）
+- 简要说明：新增 `services/selectorRefiner.ts` 完成清洗随机 ID/Tailwind 类名、生成 XPath/text 维度、定义静态模式选择器优先级（id > data-testid > aria-label > text > refined css），并接入 `aiService.generateTestScript` 与 `parseIntentToStep` 的精炼流程。
 
 ### 任务 5：交互式录制增强（里程碑 4）
 - 详细需求说明：
