@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "agent": "node agent/server.js"
   },
   "dependencies": {
     "lucide-react": "^0.554.0",

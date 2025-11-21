@@ -8,6 +8,7 @@ import { FlowGraph } from './components/FlowGraph';
 import { EditStepModal } from './components/EditStepModal';
 import { ActionMenu } from './components/ActionMenu';
 import { generateTestScript, parseIntentToStep } from './services/aiService';
+import { startSession, subscribeEvents, exec as agentExec, act as agentAct, observe as agentObserve } from './services/agentClient';
 import { Step, ScriptMode, StepType, StepTarget } from './types';
 import { Play, Square, Download, Sparkles, Zap, Layout, Code, Bot, Settings, AlertTriangle, List, Package, Target } from 'lucide-react';
 
@@ -27,6 +28,10 @@ export const App: React.FC = () => {
   const [activeMainTab, setActiveMainTab] = useState<'live' | 'flow'>('live');
   const [activeSidebarTab, setActiveSidebarTab] = useState<'steps' | 'library'>('steps');
   const [apiKeyMissing, setApiKeyMissing] = useState(false);
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [screenshotBase64, setScreenshotBase64] = useState<string | undefined>(undefined);
+  const [interactiveElements, setInteractiveElements] = useState<any[]>([]);
+  const [lastRecordingStepId, setLastRecordingStepId] = useState<string | null>(null);
   
   // Editing State
   const [editingStep, setEditingStep] = useState<Step | null>(null);
@@ -43,10 +48,33 @@ export const App: React.FC = () => {
 
   // Check for API Key on mount
   useEffect(() => {
-    if (!process.env.API_KEY) {
-      setApiKeyMissing(true);
-    }
+    const hasOpenAI = !!import.meta.env.VITE_OPENAI_API_KEY;
+    const hasGemini = !!import.meta.env.VITE_GEMINI_API_KEY || !!import.meta.env.VITE_GOOGLE_GENERATIVE_AI_API_KEY;
+    setApiKeyMissing(!(hasOpenAI || hasGemini));
   }, []);
+
+  useEffect(() => {
+    const init = async () => {
+      const res = await startSession(url, false);
+      setSessionId(res.sessionId);
+    };
+    init();
+  }, []);
+
+  useEffect(() => {
+    if (!sessionId) return;
+    const unsub = subscribeEvents(sessionId, {
+      onScreenshot: (d) => setScreenshotBase64(d.base64),
+      onDomUpdate: (d) => setInteractiveElements(d.interactive_elements || []),
+      onActionComplete: () => {
+        if (lastRecordingStepId) {
+          setSteps(prev => prev.map(s => s.id === lastRecordingStepId ? { ...s, status: 'success' } : s));
+          setLastRecordingStepId(null);
+        }
+      }
+    });
+    return () => { unsub(); };
+  }, [sessionId, lastRecordingStepId]);
 
   // Auto-generate code when steps or mode changes
   useEffect(() => {
@@ -135,25 +163,16 @@ export const App: React.FC = () => {
     setSteps(newSteps);
   };
 
-  const handleRunStep = (step: Step) => {
-      // Mock execution of a single step
-      const newSteps = steps.map(s => {
-          if (s.id === step.id) {
-              return { ...s, status: 'recording' as const }; // Temporary loading state
-          }
-          return s;
-      });
-      setSteps(newSteps);
-
-      // Simulate async success
-      setTimeout(() => {
-          setSteps(currentSteps => currentSteps.map(s => {
-              if (s.id === step.id) {
-                  return { ...s, status: 'success' as const };
-              }
-              return s;
-          }));
-      }, 800);
+  const handleRunStep = async (step: Step) => {
+      if (!sessionId) return;
+      setSteps(prev => prev.map(s => s.id === step.id ? { ...s, status: 'recording' } : s));
+      setLastRecordingStepId(step.id);
+      if (mode === ScriptMode.STATIC) {
+        const sel = step.target?.selectors?.precise || '';
+        await agentExec(sessionId, sel, step.action === 'click' ? 'click' : 'run');
+      } else {
+        await agentAct(sessionId, step.intent);
+      }
   };
   
   const handleEditStep = (step: Step) => {
@@ -222,11 +241,15 @@ export const App: React.FC = () => {
     } as Step : s));
   };
 
-  const handleElementSelected = (elementData: any) => {
-    // Called from BrowserPreview when an element is selected in inspect mode
+  const handleElementSelected = async () => {
+    if (!sessionId) return;
     setIsInspecting(false);
-    setSelectedElement(elementData.target);
-    setIsActionMenuOpen(true);
+    const res = await agentObserve(sessionId, 'find inputs');
+    const first = (res.elements || [])[0] || null;
+    if (first) {
+      setSelectedElement(first);
+      setIsActionMenuOpen(true);
+    }
   };
 
   const handleCloseActionMenu = () => {
@@ -234,7 +257,7 @@ export const App: React.FC = () => {
     setSelectedElement(null);
   };
 
-  const handleActionSelected = (action: 'click' | 'input' | 'assertVisible' | 'assertText') => {
+  const handleActionSelected = async (action: 'click' | 'input' | 'assertVisible' | 'assertText') => {
     if (!selectedElement) return;
 
     let type = StepType.INTERACTION;
@@ -276,6 +299,15 @@ export const App: React.FC = () => {
     setSteps([...steps, newStep]);
     setActiveSidebarTab('steps');
     handleCloseActionMenu();
+    if (sessionId) {
+      setLastRecordingStepId(newStep.id);
+      if (mode === ScriptMode.STATIC) {
+        const sel = newStep.target?.selectors?.precise || '';
+        await agentExec(sessionId, sel, newAction === 'click' ? 'click' : 'run');
+      } else {
+        await agentAct(sessionId, newStep.intent);
+      }
+    }
   };
 
   // Handle URL changes from the header input
@@ -417,7 +449,8 @@ export const App: React.FC = () => {
                  onUrlChange={handleUrlChange}
                  onElementSelect={handleElementSelected}
                  isInspecting={isInspecting}
-               />
+                 screenshotBase64={screenshotBase64}
+              />
              ) : (
                <FlowGraph steps={steps} />
              )}

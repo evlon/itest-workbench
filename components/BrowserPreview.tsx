@@ -6,6 +6,7 @@ interface BrowserPreviewProps {
   onUrlChange: (url: string) => void;
   onElementSelect: (elementData: any) => void;
   isInspecting: boolean;
+  screenshotBase64?: string;
 }
 
 /**
@@ -17,7 +18,7 @@ interface BrowserPreviewProps {
  * which would then return the results. For this simulation, we are faking
  * these interactions and the returned data.
  */
-export const BrowserPreview: React.FC<BrowserPreviewProps> = ({ url, onUrlChange, onElementSelect, isInspecting }) => {
+export const BrowserPreview: React.FC<BrowserPreviewProps> = ({ url, onUrlChange, onElementSelect, isInspecting, screenshotBase64 }) => {
   const [inputUrl, setInputUrl] = useState(url);
   const [isLoading, setIsLoading] = useState(true);
   const viewportRef = useRef<HTMLDivElement>(null);
@@ -50,14 +51,13 @@ export const BrowserPreview: React.FC<BrowserPreviewProps> = ({ url, onUrlChange
 
       // Simulate a response from Stagehand after a short delay
       setTimeout(() => {
-        const mockElement = {
-            label: `元素 @ (${x.toFixed(0)}, ${y.toFixed(0)})`,
-            id: `el-${Date.now()}`,
-            text: '模拟的元素内容',
-            selector: `div.some-class > #${`el-${Date.now()}`}`,
+        const target = {
+          description: `元素 @ (${x.toFixed(0)}, ${y.toFixed(0)})`,
+          selectors: {
+            precise: `div.some-class > #${`el-${Date.now()}`}`
+          }
         };
-        console.log("[Simulated Stagehand] Identified element:", mockElement);
-        onElementSelect({ target: mockElement });
+        onElementSelect({ target });
       }, 300);
     }
   };
@@ -102,23 +102,20 @@ export const BrowserPreview: React.FC<BrowserPreviewProps> = ({ url, onUrlChange
                  </div>
              </div>
         ) : (
-            <div className="w-full h-full flex flex-col items-center justify-center bg-white text-slate-500">
-                <h1 className="text-2xl font-bold mb-2">Stagehand 浏览器模拟</h1>
-                <p className="text-sm max-w-md text-center mb-4">
-                    这是一个远程浏览器会话的视觉占位符。在实际产品中，这里会渲染一个由 Stagehand 托管的实时浏览器 VNC 视频流。
-                </p>
-                <div className="font-mono text-xs bg-slate-100 p-4 rounded-lg border">
-                    <p><span className="font-bold">目标 URL:</span> {url}</p>
-                    <p><span className="font-bold">状态:</span> {isInspecting ? '正在等待元素选择...' : '空闲'}</p>
+            <div className="w-full h-full relative bg-black">
+              {isInspecting && (
+                <div className="absolute inset-0 bg-blue-500/10 border-4 border-dashed border-blue-500/50 flex items-center justify-center pointer-events-none animate-pulse z-10">
+                  <div className="bg-blue-600 text-white px-4 py-2 rounded-full shadow-lg flex items-center gap-2">
+                    <MousePointer2 size={16} />
+                    <span className="font-bold">检查模式</span>
+                  </div>
                 </div>
-                 {isInspecting && (
-                    <div className="absolute inset-0 bg-blue-500/10 border-4 border-dashed border-blue-500/50 flex items-center justify-center pointer-events-none animate-pulse">
-                        <div className="bg-blue-600 text-white px-4 py-2 rounded-full shadow-lg flex items-center gap-2">
-                            <MousePointer2 size={16} />
-                            <span className="font-bold">检查模式已激活</span>: 点击任意位置来选择一个模拟元素
-                        </div>
-                    </div>
-                 )}
+              )}
+              {screenshotBase64 ? (
+                <img src={`data:image/png;base64,${screenshotBase64}`} alt="preview" className="w-full h-full object-contain" />
+              ) : (
+                <div className="w-full h-full flex items-center justify-center text-slate-400">无预览</div>
+              )}
             </div>
         )}
       </div>

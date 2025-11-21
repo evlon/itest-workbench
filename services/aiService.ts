@@ -2,30 +2,30 @@ import { GoogleGenAI, Type } from "@google/genai";
 import OpenAI from "openai";
 import { Step, ScriptMode } from "../types";
 
-// Use the environment variable API key
-const MODEL_NAME = process.env.MODEL_NAME || '';
+const MODEL_NAME = import.meta.env.VITE_MODEL_NAME || '';
 const LLM_TYPE = MODEL_NAME.split('/')[0];
 const modelName = MODEL_NAME.split('/')[1];
-const apiKey = process.env[`${LLM_TYPE}_API_KEY`] || '';
-const baseUrl = process.env[`${LLM_TYPE}_BASE_URL`] || '';
-
-// Simple detection logic: OpenAI keys typically start with 'sk-'
 const isOpenAI = LLM_TYPE === 'openai';
 
-// Initialize Clients
+let apiKey = '';
+let baseUrl = '';
+
+if (isOpenAI) {
+  apiKey = import.meta.env.VITE_OPENAI_API_KEY || '';
+  baseUrl = import.meta.env.VITE_OPENAI_BASE_URL || '';
+} else {
+  apiKey = import.meta.env.VITE_GEMINI_API_KEY || import.meta.env.VITE_GOOGLE_GENERATIVE_AI_API_KEY || '';
+}
+
 let geminiClient: GoogleGenAI | null = null;
 let openaiClient: OpenAI | null = null;
 
 if (apiKey) {
-    if (isOpenAI) {
-        openaiClient = new OpenAI({ 
-            apiKey, 
-            baseURL: baseUrl,
-            dangerouslyAllowBrowser: true 
-        });
-    } else {
-        geminiClient = new GoogleGenAI({ apiKey });
-    }
+  if (isOpenAI) {
+    openaiClient = new OpenAI({ apiKey, baseURL: baseUrl, dangerouslyAllowBrowser: true });
+  } else {
+    geminiClient = new GoogleGenAI({ apiKey });
+  }
 }
 
 // Models
@@ -70,61 +70,59 @@ export const parseIntentToStep = async (
 
   try {
     if (isOpenAI && openaiClient) {
-        const completion = await openaiClient.chat.completions.create({
-            model: modelName,
-            messages: [
-                { role: "system", content: systemPrompt },
-                { role: "user", content: userContent }
-            ],
-            response_format: { type: "json_object" }
-        });
-        
-        const content = completion.choices[0].message.content;
-        return content ? JSON.parse(content) : {};
+      const completion = await openaiClient.chat.completions.create({
+        model: modelName,
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userContent }
+        ],
+        response_format: { type: "json_object" }
+      });
+      const content = completion.choices[0].message.content;
+      return content ? JSON.parse(content) : {};
     } else if (geminiClient) {
-        const response = await geminiClient.models.generateContent({
-          model: modelName,
-          contents: `${systemPrompt}\n\n${userContent}`,
-          config: { 
-            responseMimeType: "application/json",
-            responseSchema: {
+      const response = await geminiClient.models.generateContent({
+        model: modelName,
+        contents: `${systemPrompt}\n\n${userContent}`,
+        config: {
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              type: { type: Type.STRING },
+              action: { type: Type.STRING },
+              target: {
                 type: Type.OBJECT,
                 properties: {
-                    type: { type: Type.STRING },
-                    action: { type: Type.STRING },
-                    target: {
-                        type: Type.OBJECT,
-                        properties: {
-                            description: { type: Type.STRING },
-                            selectors: {
-                                type: Type.OBJECT,
-                                properties: {
-                                    precise: { type: Type.STRING },
-                                    semantic: { type: Type.STRING }
-                                }
-                            }
-                        }
-                    },
-                    params: { 
-                        type: Type.OBJECT,
-                        nullable: true,
-                        properties: {
-                            value: { type: Type.STRING, description: "input value" },
-                            url: { type: Type.STRING, description: "target url" },
-                            text: { type: Type.STRING, description: "assertion text" }
-                        }
+                  description: { type: Type.STRING },
+                  selectors: {
+                    type: Type.OBJECT,
+                    properties: {
+                      precise: { type: Type.STRING },
+                      semantic: { type: Type.STRING }
                     }
+                  }
                 }
+              },
+              params: {
+                type: Type.OBJECT,
+                nullable: true,
+                properties: {
+                  value: { type: Type.STRING },
+                  url: { type: Type.STRING },
+                  text: { type: Type.STRING }
+                }
+              }
             }
           }
-        });
-
-        if (response.text) {
-            return JSON.parse(response.text);
         }
+      });
+      if (response.text) {
+        return JSON.parse(response.text);
+      }
     }
     throw new Error("No response from AI provider");
-
+  
   } catch (error) {
     console.error("AI Intent Parse Error:", error);
     return {
@@ -140,7 +138,7 @@ export const generateTestScript = async (
   steps: Step[],
   mode: ScriptMode
 ): Promise<string> => {
-  if (!apiKey) return "// API Key 缺失。生成了模拟脚本。\n// 请在环境中配置有效的 API_KEY (支持 OpenAI 'sk-' 或 Gemini Key)。\n\nimport { test } from '@playwright/test';\n\ntest('Mock Test', async ({ page }) => {\n  // 这是一个模拟文件\n});";
+  if (!apiKey) return "// API Key 缺失。生成了模拟脚本。\n\nimport { test } from '@playwright/test';\n\ntest('Mock Test', async ({ page }) => {\n});";
 
   const stepsJson = JSON.stringify(steps.map(s => ({
     intent: s.intent,
