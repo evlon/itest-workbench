@@ -8,6 +8,7 @@ import { FlowGraph } from './components/FlowGraph';
 import { EditStepModal } from './components/EditStepModal';
 import { ActionMenu } from './components/ActionMenu';
 import { generateTestScript, parseIntentToStepRefined } from './services/aiService';
+import { refineStepTarget, getBestStaticSelectorForStep } from './services/selectorRefiner';
 import { startSession, subscribeEvents, exec as agentExec, act as agentAct, observe as agentObserve } from './services/agentClient';
 import { Step, ScriptMode, StepType, StepTarget } from './types';
 import { Play, Square, Download, Sparkles, Zap, Layout, Code, Bot, Settings, AlertTriangle, List, Package, Target } from 'lucide-react';
@@ -168,7 +169,7 @@ export const App: React.FC = () => {
       setSteps(prev => prev.map(s => s.id === step.id ? { ...s, status: 'recording' } : s));
       setLastRecordingStepId(step.id);
       if (mode === ScriptMode.STATIC) {
-        const sel = step.target?.selectors?.precise || '';
+        const sel = getBestStaticSelectorForStep(step);
         await agentExec(sessionId, sel, step.action === 'click' ? 'click' : 'run');
       } else {
         await agentAct(sessionId, step.intent);
@@ -241,15 +242,11 @@ export const App: React.FC = () => {
     } as Step : s));
   };
 
-  const handleElementSelected = async () => {
-    if (!sessionId) return;
+  const handleElementSelected = async (payload: { target: StepTarget }) => {
     setIsInspecting(false);
-    const res = await agentObserve(sessionId, 'find inputs');
-    const first = (res.elements || [])[0] || null;
-    if (first) {
-      setSelectedElement(first);
-      setIsActionMenuOpen(true);
-    }
+    const refined = refineStepTarget(payload.target);
+    setSelectedElement(refined);
+    setIsActionMenuOpen(true);
   };
 
   const handleCloseActionMenu = () => {
@@ -302,7 +299,7 @@ export const App: React.FC = () => {
     if (sessionId) {
       setLastRecordingStepId(newStep.id);
       if (mode === ScriptMode.STATIC) {
-        const sel = newStep.target?.selectors?.precise || '';
+        const sel = getBestStaticSelectorForStep(newStep);
         await agentExec(sessionId, sel, newAction === 'click' ? 'click' : 'run');
       } else {
         await agentAct(sessionId, newStep.intent);
