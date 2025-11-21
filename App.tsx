@@ -9,7 +9,7 @@ import { EditStepModal } from './components/EditStepModal';
 import { ActionMenu } from './components/ActionMenu';
 import { generateTestScript, parseIntentToStepRefined } from './services/aiService';
 import { refineStepTarget, getBestStaticSelectorForStep } from './services/selectorRefiner';
-import { startSession, subscribeEvents, exec as agentExec, act as agentAct, observe as agentObserve, startStream as agentStartStream, stopStream as agentStopStream } from './services/agentClient';
+import { startSession, stopSession, subscribeEvents, exec as agentExec, act as agentAct, observe as agentObserve, startStream as agentStartStream, stopStream as agentStopStream } from './services/agentClient';
 import { Step, ScriptMode, StepType, StepTarget } from './types';
 import { Play, Square, Download, Sparkles, Zap, Layout, Code, Bot, Settings, AlertTriangle, List, Package, Target } from 'lucide-react';
 
@@ -34,6 +34,7 @@ export const App: React.FC = () => {
   const [interactiveElements, setInteractiveElements] = useState<any[]>([]);
   const [lastRecordingStepId, setLastRecordingStepId] = useState<string | null>(null);
   const [isStreaming, setIsStreaming] = useState(false);
+  const [isHeadless, setIsHeadless] = useState(true);
   
   // Editing State
   const [editingStep, setEditingStep] = useState<Step | null>(null);
@@ -56,12 +57,21 @@ export const App: React.FC = () => {
   }, []);
 
   useEffect(() => {
+    let createdSession: string | null = null;
     const init = async () => {
-      const res = await startSession(url, true);
+      const res = await startSession(url, isHeadless);
+      createdSession = res.sessionId;
       setSessionId(res.sessionId);
+      setIsStreaming(false);
     };
     init();
-  }, []);
+    return () => {
+      if (createdSession) {
+        try { stopSession(createdSession); } catch {}
+        createdSession = null;
+      }
+    };
+  }, [isHeadless, url]);
 
   useEffect(() => {
     if (!sessionId) return;
@@ -363,6 +373,12 @@ export const App: React.FC = () => {
                <span>演示模式 (无 API Key)</span>
              </div>
            )}
+           <button 
+             onClick={() => setIsHeadless(h => !h)}
+             className={`flex items-center gap-2 px-3 py-1.5 rounded text-xs font-medium transition-all ${isHeadless ? 'bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700' : 'bg-green-600/20 text-green-400 border border-green-600/50'}`}
+           >
+             {isHeadless ? '无头：开' : '无头：关'}
+           </button>
            <button 
              onClick={handleInspectToggle}
              className={`

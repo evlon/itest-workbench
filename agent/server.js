@@ -118,10 +118,27 @@ const server = http.createServer(async (req, res) => {
 
   if (req.method === 'POST' && pathname === '/session/start') {
     const body = await parseBody(req)
-    const sessionId = genId()
     const urlToOpen = body.url || ''
-    const headless = false
-    const browser = await chromium.launch({ headless })
+    const headlessReq = typeof body.headless === 'boolean' ? body.headless : true
+
+    if (!headlessReq) {
+      const existing = Array.from(sessions.values()).find(s => s && s.headless === false)
+      if (existing) {
+        try {
+          if (urlToOpen) {
+            await existing.page.goto(urlToOpen, { waitUntil: 'load', timeout: 15000 })
+            let shot = ''
+            try { shot = (await existing.page.screenshot({ fullPage: true, type: 'jpeg', quality: 60 }))?.toString('base64') || '' } catch {}
+            existing.lastScreenshot = shot
+            for (const client of existing.clients) writeEvent(client, 'screenshot', { base64: shot, timestamp: Date.now() })
+          }
+        } catch {}
+        return sendJson(res, 200, { sessionId: existing.id, reused: true })
+      }
+    }
+
+    const sessionId = genId()
+    const browser = await chromium.launch({ headless: headlessReq })
     const context = await browser.newContext()
     const page = await context.newPage()
     if (urlToOpen) {
@@ -134,7 +151,7 @@ const server = http.createServer(async (req, res) => {
     sessions.set(sessionId, {
       id: sessionId,
       url: urlToOpen,
-      headless,
+      headless: headlessReq,
       clients: new Set(),
       pingInterval: null,
       browser,
