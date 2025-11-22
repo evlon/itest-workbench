@@ -1,21 +1,30 @@
 
 import React, { useState } from 'react';
 import { Step, StepType } from '../types';
-import { Play, CheckCircle, AlertCircle, MoreHorizontal, Clock, MousePointerClick, GripVertical, Settings, Package } from 'lucide-react';
+import { Play, CheckCircle, AlertCircle, MoreHorizontal, Clock, MousePointerClick, GripVertical, Settings, Package, ChevronDown, ChevronRight, Split } from 'lucide-react';
 
 interface StepListProps {
   steps: Step[];
   activeStepId: string | null;
   selectedStepIds: string[];
+  selectionEnabled?: boolean;
+  selectionCount?: number;
+  userComponents?: any[];
+  expandedMap?: Record<string, boolean>;
+  onToggleExpand?: (id: string) => void;
   onStepClick: (step: Step) => void;
   onToggleStepSelection: (stepId: string) => void;
+  onSelectAll?: () => void;
+  onInvertSelection?: () => void;
   onDeleteStep: (id: string) => void;
   onRunStep: (step: Step) => void;
   onMoveStep: (dragIndex: number, hoverIndex: number) => void;
   onEditStep: (step: Step) => void;
+  onUpdateStep?: (s: Step) => void;
+  onUngroupComponent?: (s: Step) => void;
 }
 
-export const StepList: React.FC<StepListProps> = ({ steps, activeStepId, selectedStepIds, onStepClick, onToggleStepSelection, onDeleteStep, onRunStep, onMoveStep, onEditStep }) => {
+export const StepList: React.FC<StepListProps> = ({ steps, activeStepId, selectedStepIds, selectionEnabled = false, selectionCount = 0, userComponents = [], expandedMap = {}, onToggleExpand, onStepClick, onToggleStepSelection, onSelectAll, onInvertSelection, onDeleteStep, onRunStep, onMoveStep, onEditStep, onUpdateStep, onUngroupComponent }) => {
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
 
@@ -64,7 +73,16 @@ export const StepList: React.FC<StepListProps> = ({ steps, activeStepId, selecte
     <div className="flex flex-col h-full bg-slate-900 border-r border-slate-800">
       <div className="p-4 border-b border-slate-800 flex justify-between items-center">
         <h2 className="font-semibold text-slate-200 text-sm uppercase tracking-wider">测试流程</h2>
-        <span className="text-xs text-slate-500">{steps.length} 步</span>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-slate-500">{steps.length} 步</span>
+          {selectionEnabled && (
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-blue-400">已选 {selectionCount} 步</span>
+              <button onClick={onSelectAll} className="text-[10px] px-2 py-0.5 bg-slate-800 border border-slate-700 rounded text-slate-300">全选</button>
+              <button onClick={onInvertSelection} className="text-[10px] px-2 py-0.5 bg-slate-800 border border-slate-700 rounded text-slate-300">反选</button>
+            </div>
+          )}
+        </div>
       </div>
       
       <div className="flex-1 overflow-y-auto p-2 space-y-2">
@@ -94,13 +112,15 @@ export const StepList: React.FC<StepListProps> = ({ steps, activeStepId, selecte
                 ${isComponent ? 'border-dashed border-green-700/50' : ''}
               `}
             >
-              <input
-                type="checkbox"
-                checked={isSelected}
-                onChange={() => onToggleStepSelection(step.id)}
-                className="mt-1.5 h-4 w-4 rounded bg-slate-700 border-slate-600 text-blue-600 focus:ring-blue-500"
-                onClick={(e) => e.stopPropagation()}
-              />
+              {selectionEnabled && (
+                <input
+                  type="checkbox"
+                  checked={isSelected}
+                  onChange={() => onToggleStepSelection(step.id)}
+                  className="mt-1.5 h-4 w-4 rounded bg-slate-700 border-slate-600 text-blue-600 focus:ring-blue-500"
+                  onClick={(e) => e.stopPropagation()}
+                />
+              )}
               {/* Step Number Line & Drag Handle */}
               <div className="flex flex-col items-center mt-1 gap-2">
                  <div className="cursor-grab active:cursor-grabbing text-slate-600 hover:text-slate-400 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -159,7 +179,17 @@ export const StepList: React.FC<StepListProps> = ({ steps, activeStepId, selecte
                     </button>
                   </div>
                 </div>
-                <p className="text-sm text-slate-200 truncate font-medium pr-2">{step.intent}</p>
+                <div className="flex items-center gap-1">
+                  {isComponent && (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); onToggleExpand?.(step.id); }}
+                      className="p-1 rounded hover:bg-slate-700 text-slate-400"
+                    >
+                      {expandedMap[step.id] ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                    </button>
+                  )}
+                  <p className="text-sm text-slate-200 truncate font-medium pr-2">{step.intent}</p>
+                </div>
                 {step.target && (
                   <p className="text-xs text-slate-500 truncate font-mono mt-1 flex items-center gap-1" title={step.target.selectors?.precise}>
                     <MousePointerClick size={10} className="opacity-50"/>
@@ -170,6 +200,108 @@ export const StepList: React.FC<StepListProps> = ({ steps, activeStepId, selecte
                     <p className="text-[10px] text-slate-400 font-mono mt-1 truncate bg-slate-950/50 px-1.5 py-0.5 rounded inline-block max-w-full">
                        {step.params.url || step.params.value}
                     </p>
+                )}
+                {isComponent && expandedMap[step.id] && (
+                  <div className="mt-2 p-2 border border-slate-700 rounded bg-slate-800/40">
+                    <div className="text-xs font-semibold text-slate-300 mb-2">组件配置</div>
+                    {(() => {
+                      const comp = userComponents.find(c => c.id === step.componentId);
+                      if (!comp) return <div className="text-xs text-red-400">未找到组件</div>;
+                      const schema = Array.isArray(comp.paramsSchema) ? comp.paramsSchema : [];
+                      const handleChange = (key: string, value: any) => {
+                        const next: Step = { ...step, params: { ...(step.params || {}), [key]: value } };
+                        onUpdateStep?.(next);
+                      };
+                      const findOccurrences = (key: string) => {
+                        const paths: string[] = [];
+                        const walk = (obj: any, path: string[]) => {
+                          if (obj == null) return;
+                          if (typeof obj === 'string') {
+                            if (obj.includes(`{{${key}}}`)) paths.push(path.join('.'));
+                            return;
+                          }
+                          if (Array.isArray(obj)) {
+                            obj.forEach((v, i) => walk(v, path.concat([String(i)])));
+                            return;
+                          }
+                          if (typeof obj === 'object') {
+                            Object.keys(obj).forEach(k => walk(obj[k], path.concat([k])));
+                          }
+                        };
+                        comp.steps.forEach((s: any, idx: number) => walk(s, [String(idx)]));
+                        return paths;
+                      };
+                      const inner = (
+                        <div className="mb-3">
+                          <div className="text-[10px] text-slate-400 mb-1">内部元素</div>
+                          <div className="space-y-1">
+                            {comp.steps.map((cs: any, i: number) => (
+                              <div key={i} className="text-[10px] text-slate-300 bg-slate-900/40 border border-slate-700 rounded px-2 py-1 flex items-center gap-2">
+                                <span className="px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700">{cs.action}</span>
+                                <span className="truncate flex-1">{cs.intent}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                      const paramsBlock = schema.length === 0 ? (
+                        <div className="text-xs text-slate-400">此组件无参数</div>
+                      ) : (
+                        <div className="space-y-2">
+                          {schema.map((p: any, i: number) => {
+                            const t = p.type || 'string';
+                            const v = (step.params || {})[p.key] ?? p.defaultValue ?? '';
+                            const occ = findOccurrences(p.key);
+                            return (
+                              <div key={i} className="flex items-start gap-2">
+                                <div className="w-32 text-[10px] text-slate-400">{p.label || p.key}</div>
+                                {t === 'boolean' ? (
+                                  <input type="checkbox" checked={!!v} onChange={(e) => handleChange(p.key, e.target.checked)} />
+                                ) : (
+                                  <input
+                                    value={String(v)}
+                                    onChange={(e) => {
+                                      const raw = e.target.value;
+                                      let parsed: any = raw;
+                                      if (t === 'number') parsed = Number(raw);
+                                      handleChange(p.key, parsed);
+                                    }}
+                                    placeholder={String(p.defaultValue ?? '')}
+                                    className="flex-1 px-2 py-1 text-xs bg-slate-800 border border-slate-700 rounded text-slate-200"
+                                  />
+                                )}
+                                <select
+                                  value={t}
+                                  onChange={(e) => { const nt = e.target.value; const nv = nt === 'number' ? Number(v || 0) : nt === 'boolean' ? !!v : String(v ?? ''); handleChange(p.key, nv); comp.paramsSchema[i].type = nt; }}
+                                  className="w-28 px-2 py-1 text-[10px] bg-slate-800 border border-slate-700 rounded text-slate-200"
+                                >
+                                  <option value="string">string</option>
+                                  <option value="number">number</option>
+                                  <option value="boolean">boolean</option>
+                                </select>
+                                <div className="text-[10px] text-slate-500">依赖: {occ.length} 处</div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      );
+                      return (
+                        <div className="space-y-3">
+                          {inner}
+                          {paramsBlock}
+                          <div className="pt-1">
+                            <button
+                              onClick={(e) => { e.stopPropagation(); onUngroupComponent?.(step); }}
+                              className="text-[10px] px-2 py-1 bg-red-900/40 border border-red-700 rounded text-red-300 flex items-center gap-1"
+                            >
+                              <Split size={12} />
+                              拆解组件
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </div>
                 )}
               </div>
             </div>

@@ -45,6 +45,11 @@ export const App: React.FC = () => {
 
   // Step Selection State
   const [selectedStepIds, setSelectedStepIds] = useState<string[]>([]);
+  const [isExtractMode, setIsExtractMode] = useState(false);
+  const [expandedComponentIds, setExpandedComponentIds] = useState<Record<string, boolean>>({});
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [createName, setCreateName] = useState('');
+  const [createDesc, setCreateDesc] = useState('');
 
   // User Components State
   const [userComponents, setUserComponents] = useState<any[]>([]);
@@ -166,12 +171,16 @@ export const App: React.FC = () => {
   };
 
   const handleExtractComponent = () => {
-    const componentName = window.prompt("请输入组件名称:");
-    if (!componentName || componentName.trim() === '') return;
-
     const selectedSteps = steps.filter(step => selectedStepIds.includes(step.id));
     if (selectedSteps.length < 2) return;
-
+    if (isExtractMode) {
+      setCreateName('');
+      setCreateDesc('');
+      setIsCreateModalOpen(true);
+      return;
+    }
+    const componentName = window.prompt("请输入组件名称:");
+    if (!componentName || componentName.trim() === '') return;
     setComponentDraft({ name: componentName, steps: selectedSteps });
     const detected: { stepIndex: number; path: string; value: string }[] = [];
     selectedSteps.forEach((s, idx) => {
@@ -418,6 +427,47 @@ export const App: React.FC = () => {
 
   return (
     <div className="flex flex-col h-screen bg-slate-950 text-slate-100 overflow-hidden font-sans selection:bg-blue-500/30">
+      {isCreateModalOpen && activeSidebarTab === 'steps' && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+          <div className="w-[560px] bg-slate-900 border border-slate-800 rounded-lg shadow-xl">
+            <div className="p-4 border-b border-slate-800 flex items-center justify-between">
+              <div className="text-sm font-semibold text-slate-200">创建组件</div>
+              <button onClick={() => setIsCreateModalOpen(false)} className="text-slate-400 text-xs">关闭</button>
+            </div>
+            <div className="p-4 space-y-3">
+              <div>
+                <div className="text-xs text-slate-400 mb-1">组件名称（必填）</div>
+                <input value={createName} onChange={(e) => setCreateName(e.target.value)} placeholder="请输入组件名称" className="w-full px-2 py-1 text-sm bg-slate-800 border border-slate-700 rounded text-slate-200" />
+              </div>
+              <div>
+                <div className="text-xs text-slate-400 mb-1">组件描述（可选）</div>
+                <textarea value={createDesc} onChange={(e) => setCreateDesc(e.target.value)} placeholder="用于说明此组件用途" className="w-full px-2 py-1 text-sm bg-slate-800 border border-slate-700 rounded text-slate-200 min-h-[80px]" />
+              </div>
+            </div>
+            <div className="p-4 border-t border-slate-800 flex items-center justify-end gap-2">
+              <button onClick={() => setIsCreateModalOpen(false)} className="text-xs px-3 py-1 bg-slate-800 border border-slate-700 rounded text-slate-300">取消</button>
+              <button onClick={() => {
+                const name = createName.trim();
+                if (!name) return;
+                const selectedSteps = steps.filter(step => selectedStepIds.includes(step.id));
+                if (selectedSteps.length < 2) return;
+                const slug = name.toLowerCase().replace(/\s+/g, '-');
+                const createdAt = Date.now();
+                const newComponent = { id: `comp-${createdAt}`, name, slug, description: createDesc.trim(), createdAt, steps: selectedSteps.map(s => ({...s})), paramsSchema: [] };
+                setUserComponents(prev => [...prev, newComponent]);
+                const newComponentStep: Step = { id: `step-${Date.now()}`, type: StepType.COMPONENT, action: 'component', intent: `执行组件: ${newComponent.name}`, componentId: newComponent.id, componentName: newComponent.name, status: 'pending', params: {} };
+                const firstSelectedIndex = steps.findIndex(step => step.id === selectedStepIds[0]);
+                const stepsWithoutSelected = steps.filter(step => !selectedStepIds.includes(step.id));
+                stepsWithoutSelected.splice(firstSelectedIndex, 0, newComponentStep);
+                setSteps(stepsWithoutSelected);
+                setSelectedStepIds([]);
+                setIsCreateModalOpen(false);
+                setIsExtractMode(false);
+              }} className={`text-xs px-3 py-1 ${!createName.trim() ? 'bg-slate-700 text-slate-400 border border-slate-600 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-500 text-white'} rounded`}>确认创建</button>
+            </div>
+          </div>
+        </div>
+      )}
       {isParamsModalOpen && componentDraft && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
           <div className="w-[720px] bg-slate-900 border border-slate-800 rounded-lg shadow-xl">
@@ -568,7 +618,7 @@ export const App: React.FC = () => {
       <main className="flex-1 flex overflow-hidden">
         
         {/* Left Sidebar: Tabs + Content */}
-        <aside className="w-72 shrink-0 flex flex-col z-10 border-r border-slate-800 bg-slate-950">
+      <aside className="w-72 shrink-0 flex flex-col z-10 border-r border-slate-800 bg-slate-950">
            {/* Sidebar Tabs */}
            <div className="flex border-b border-slate-800 bg-slate-900">
               <button 
@@ -588,26 +638,55 @@ export const App: React.FC = () => {
            </div>
 
            <div className="flex-1 overflow-hidden relative">
-             <div className="p-2 border-b border-slate-800 bg-slate-900/50 h-14 flex items-center">
-                <button
-                    onClick={handleExtractComponent}
-                    disabled={selectedStepIds.length < 2}
-                    className="flex items-center gap-2 px-3 py-1.5 rounded text-xs font-medium transition-all bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                    提取为组件
-                </button>
-             </div>
+             {activeSidebarTab === 'steps' && (
+               <div className="p-2 border-b border-slate-800 bg-slate-900/50 h-14 flex items-center">
+                 <button
+                     onClick={() => setIsExtractMode(m => !m)}
+                     className={`mr-2 flex items-center gap-2 px-3 py-1.5 rounded text-xs font-medium transition-all ${isExtractMode ? 'bg-blue-900/40 text-blue-300 border border-blue-700' : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700'}`}
+                 >
+                     提取模式
+                 </button>
+                 <button
+                     onClick={handleExtractComponent}
+                     disabled={selectedStepIds.length < 2}
+                     className="flex items-center gap-2 px-3 py-1.5 rounded text-xs font-medium transition-all bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                 >
+                     提取为组件
+                 </button>
+                 {isExtractMode && (
+                   <span className="ml-2 text-[10px] px-2 py-0.5 rounded border border-blue-700 bg-blue-900/30 text-blue-300">提取模式：开</span>
+                 )}
+               </div>
+             )}
              {activeSidebarTab === 'steps' ? (
                 <StepList 
                   steps={steps} 
                   activeStepId={activeStepId}
                   selectedStepIds={selectedStepIds}
+                  selectionEnabled={isExtractMode}
+                  selectionCount={selectedStepIds.length}
+                  expandedMap={expandedComponentIds}
+                  onToggleExpand={(id) => setExpandedComponentIds(prev => ({ ...prev, [id]: !prev[id] }))}
                   onStepClick={handleStepClick}
                   onToggleStepSelection={handleToggleStepSelection}
+                  onSelectAll={() => setSelectedStepIds(steps.map(s => s.id))}
+                  onInvertSelection={() => setSelectedStepIds(prev => steps.map(s => s.id).filter(id => !prev.includes(id)))}
                   onDeleteStep={handleDeleteStep}
                   onRunStep={handleRunStep}
                   onMoveStep={handleMoveStep}
                   onEditStep={handleEditStep}
+                  userComponents={userComponents}
+                  onUpdateStep={(s) => setSteps(prev => prev.map(x => x.id === s.id ? s : x))}
+                  onUngroupComponent={(s) => {
+                    const idx = steps.findIndex(x => x.id === s.id);
+                    if (idx < 0) return;
+                    const comp = userComponents.find(c => c.id === s.componentId);
+                    if (!comp) return;
+                    const clones: Step[] = comp.steps.map((cs: Step) => ({ ...cs, id: Math.random().toString(36).slice(2) }));
+                    const next = [...steps];
+                    next.splice(idx, 1, ...clones);
+                    setSteps(next);
+                  }}
                 />
              ) : (
                 <ComponentLibrary onAddTemplate={handleAddTemplate} userComponents={userComponents} />
