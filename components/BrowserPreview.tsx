@@ -16,6 +16,10 @@ interface BrowserPreviewProps {
   inspectTrigger?: 'ctrlOrMeta' | 'alt' | 'shift';
   keyCount?: number;
   textCount?: number;
+  failureInfo?: { htmlSnippet: string; at: number } | null;
+  onClearFailure?: () => void;
+  onShowFailure?: () => void;
+  failureRect?: { x: number; y: number; w: number; h: number } | null;
 }
 
 /**
@@ -27,7 +31,7 @@ interface BrowserPreviewProps {
  * which would then return the results. For this simulation, we are faking
  * these interactions and the returned data.
  */
-export const BrowserPreview: React.FC<BrowserPreviewProps> = ({ url, onUrlChange, onElementSelect, isInspecting, screenshotBase64, sessionId, isStreaming, isKeyRecording, onToggleKeyRecording, onPlaybackKeys, onKeyEvent, inspectTrigger = 'ctrlOrMeta', keyCount = 0, textCount = 0 }) => {
+export const BrowserPreview: React.FC<BrowserPreviewProps> = ({ url, onUrlChange, onElementSelect, isInspecting, screenshotBase64, sessionId, isStreaming, isKeyRecording, onToggleKeyRecording, onPlaybackKeys, onKeyEvent, inspectTrigger = 'ctrlOrMeta', keyCount = 0, textCount = 0, failureInfo, onClearFailure, onShowFailure, failureRect }) => {
   const [inputUrl, setInputUrl] = useState(url);
   const [isLoading, setIsLoading] = useState(true);
   const viewportRef = useRef<HTMLDivElement>(null);
@@ -35,6 +39,7 @@ export const BrowserPreview: React.FC<BrowserPreviewProps> = ({ url, onUrlChange
   const wsRef = useRef<WebSocket | null>(null);
   const [overlay, setOverlay] = useState<{ x: number, y: number, width: number, height: number } | null>(null);
   const [frameSize, setFrameSize] = useState<{ w: number, h: number } | null>(null);
+  const [failOverlay, setFailOverlay] = useState<{ x: number, y: number, width: number, height: number } | null>(null);
 
   // Simulate loading the remote browser session
   useEffect(() => {
@@ -131,6 +136,18 @@ export const BrowserPreview: React.FC<BrowserPreviewProps> = ({ url, onUrlChange
       window.removeEventListener('keyup', onUp)
     }
   }, [isKeyRecording, sessionId])
+
+  useEffect(() => {
+    const canvas = canvasRef.current
+    const fs = frameSize
+    if (!canvas || !fs || !failureRect) { setFailOverlay(null); return }
+    setFailOverlay({
+      x: failureRect.x * (canvas.width / fs.w),
+      y: failureRect.y * (canvas.height / fs.h),
+      width: failureRect.w * (canvas.width / fs.w),
+      height: failureRect.h * (canvas.height / fs.h)
+    })
+  }, [failureRect, frameSize])
 
   const handleUrlSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -288,6 +305,12 @@ export const BrowserPreview: React.FC<BrowserPreviewProps> = ({ url, onUrlChange
                   style={{ left: `${overlay.x}px`, top: `${overlay.y}px`, width: `${overlay.width}px`, height: `${overlay.height}px` }}
                 />
               )}
+              {failOverlay && (
+                <div
+                  className="absolute border-2 border-red-500 bg-red-500/10 pointer-events-none z-30"
+                  style={{ left: `${failOverlay.x}px`, top: `${failOverlay.y}px`, width: `${failOverlay.width}px`, height: `${failOverlay.height}px` }}
+                />
+              )}
             </div>
         )}
       </div>
@@ -306,6 +329,9 @@ export const BrowserPreview: React.FC<BrowserPreviewProps> = ({ url, onUrlChange
               )}
               {isKeyRecording && (
                 <span className="flex items-center gap-1 text-green-500">录制中 · 按键 {keyCount} · 文本 {textCount}</span>
+              )}
+              {failureInfo && (
+                <button onClick={onShowFailure} className="ml-2 text-red-400 hover:text-red-300">断言失败 · 查看详情</button>
               )}
           </div>
           <span className="text-slate-600">模拟远程浏览器</span>

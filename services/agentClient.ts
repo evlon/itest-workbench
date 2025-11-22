@@ -77,7 +77,7 @@ export const waitRemote = async (sessionId: string, ms: number) => {
   return res.json()
 }
 
-export const smartWait = async (sessionId: string, opts: { selector?: string, timeoutMs?: number, networkIdle?: boolean, stability?: boolean }) => {
+export const smartWait = async (sessionId: string, opts: { selector?: string, timeoutMs?: number, networkIdle?: boolean, stability?: boolean, domContentLoaded?: boolean, load?: boolean, visible?: boolean }) => {
   const res = await fetch(`${BASE_URL}/action/smartwait`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

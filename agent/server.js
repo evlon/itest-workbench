@@ -274,8 +274,17 @@ const server = http.createServer(async (req, res) => {
         return wrap.innerHTML.slice(0, 5000)
       }, selector)
     } catch {}
-    for (const client of session.clients) writeEvent(client, 'action-complete', { status: ok ? 'success' : 'failed', result: { type, selector, expectedText, snapshot: shot ? shot.slice(0, 120) : '', html_snippet: html } })
-    return sendJson(res, 200, { ok, html })
+    let rect = null
+    try {
+      rect = await page.evaluate((sel) => {
+        const el = sel ? document.querySelector(sel) : null
+        if (!el) return null
+        const r = el.getBoundingClientRect()
+        return { x: r.left, y: r.top, w: r.width, h: r.height }
+      }, selector)
+    } catch {}
+    for (const client of session.clients) writeEvent(client, 'action-complete', { status: ok ? 'success' : 'failed', result: { type, selector, expectedText, snapshot: shot ? shot.slice(0, 120) : '', html_snippet: html, rect } })
+    return sendJson(res, 200, { ok, html, rect })
   }
 
   if (req.method === 'POST' && pathname === '/action/wait') {
@@ -304,15 +313,29 @@ const server = http.createServer(async (req, res) => {
     const timeoutMs = typeof body.timeoutMs === 'number' ? body.timeoutMs : 3000
     const wantNetwork = body.networkIdle !== false
     const wantStable = body.stability !== false
+    const wantDomContentLoaded = body.domContentLoaded === true
+    const wantLoad = body.load === true
+    const wantVisible = body.visible === true
     let ok = true
     try {
+      if (wantDomContentLoaded) {
+        try { await page.waitForLoadState('domcontentloaded', { timeout: timeoutMs }) } catch {}
+      }
+      if (wantLoad) {
+        try { await page.waitForLoadState('load', { timeout: timeoutMs }) } catch {}
+      }
       if (wantNetwork) {
         try { await page.waitForLoadState('networkidle', { timeout: timeoutMs }) } catch {}
+      }
+      if (wantVisible && selector) {
+        try { await page.locator(selector).first().waitFor({ state: 'visible', timeout: timeoutMs }) } catch {}
+        const v = await page.locator(selector).first().isVisible()
+        ok = ok && v
       }
       if (wantStable && selector) {
         const stable = await (async () => {
           const samples = []
-          for (let i = 0; i < 3; i++) {
+          for (let i = 0; i < 5; i++) {
             const rect = await page.evaluate((sel) => {
               const el = document.querySelector(sel)
               if (!el) return null
@@ -320,11 +343,11 @@ const server = http.createServer(async (req, res) => {
               return { x: r.left, y: r.top, w: r.width, h: r.height }
             }, selector)
             samples.push(rect)
-            await new Promise(r => setTimeout(r, 200))
+            await new Promise(r => setTimeout(r, 160))
           }
-          if (!samples[0] || !samples[1] || !samples[2]) return false
+          if (!samples.every(Boolean)) return false
           const diff = (a, b) => Math.abs(a.x - b.x) + Math.abs(a.y - b.y) + Math.abs(a.w - b.w) + Math.abs(a.h - b.h)
-          return diff(samples[0], samples[1]) < 2 && diff(samples[1], samples[2]) < 2
+          return diff(samples[0], samples[1]) < 2 && diff(samples[1], samples[2]) < 2 && diff(samples[2], samples[3]) < 2 && diff(samples[3], samples[4]) < 2
         })()
         ok = ok && stable
       }

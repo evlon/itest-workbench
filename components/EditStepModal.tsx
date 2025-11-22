@@ -155,6 +155,30 @@ export const EditStepModal: React.FC<EditStepModalProps> = ({ isOpen, step, onCl
             </label>
           )}
         </div>
+        {(params.waitMode === 'smart') && (
+          <div className="grid grid-cols-3 gap-3 mt-2">
+            <label className="flex items-center gap-1 text-xs text-slate-300">
+              <input type="checkbox" checked={!!params.smartDomContentLoaded} onChange={(e) => setParams({ ...params, smartDomContentLoaded: e.target.checked })} />
+              DOM完成
+            </label>
+            <label className="flex items-center gap-1 text-xs text-slate-300">
+              <input type="checkbox" checked={!!params.smartLoad} onChange={(e) => setParams({ ...params, smartLoad: e.target.checked })} />
+              资源稳定
+            </label>
+            <label className="flex items-center gap-1 text-xs text-slate-300">
+              <input type="checkbox" checked={(params.smartNetworkIdle ?? true)} onChange={(e) => setParams({ ...params, smartNetworkIdle: e.target.checked })} />
+              XHR静默
+            </label>
+            <label className="flex items-center gap-1 text-xs text-slate-300">
+              <input type="checkbox" checked={!!params.smartVisible} onChange={(e) => setParams({ ...params, smartVisible: e.target.checked })} />
+              元素可见
+            </label>
+            <label className="flex items-center gap-1 text-xs text-slate-300">
+              <input type="checkbox" checked={(params.smartStability ?? true)} onChange={(e) => setParams({ ...params, smartStability: e.target.checked })} />
+              元素稳定
+            </label>
+          </div>
+        )}
       </div>
     )
   }

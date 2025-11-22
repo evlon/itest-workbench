@@ -48,13 +48,13 @@
 
 - [x] 智能等待增强 (#112)
   - 任务拆分：实现 `/action/smartwait` 支持 `networkIdle` 与元素稳定；在点击/输入后应用
-  - 技术规格：客户端 `smartWait(opts)`；在回放中当 `waitMode='smart'` 时调用，支持 `selector` 与 `timeoutMs`
+  - 技术规格：客户端 `smartWait(opts)`；在回放中当 `waitMode='smart'` 时调用，支持 `selector`、`timeoutMs`、`domContentLoaded`、`load`、`visible`、`stability`
   - 验收标准：快速变化页面下回放稳定；无固定延迟与过早执行问题
   - 测试方案：构造连续网络请求与动画变动场景，验证稳定性
 
 - [x] 断言失败快照 (#113)
   - 任务拆分：断言失败返回截图与 DOM 片段；事件中包含简短快照头
-  - 技术规格：`/action/assert` 返回 `{ ok, html }` 并广播 `action-complete` 携带 `html_snippet`
+  - 技术规格：`/action/assert` 返回 `{ ok, html, rect }` 并广播 `action-complete` 携带 `html_snippet` 与 `rect`；UI 显示高亮框
   - 验收标准：失败场景有可用快照用于分析
   - 测试方案：在错误文本断言场景下查看返回片段
 
@@ -94,3 +94,8 @@
 - 任务状态：待办/进行中/已完成，通过复选框体现
 - 代码审查与验证：每次迭代结束进行代码 Review 与流式预览回归
 - 时间节点：预留 20% 回归与测试时间；记录实际完成时间与预估偏差
+- [x] smart 等待子项配置 UI (#116)
+  - 任务拆分：在编辑面板中为 smart 等待增加 DOM 完成、资源稳定、XHR 静默、元素可见、元素稳定的可选子项
+  - 技术规格：绑定到 `Step.params` 中的 `smartDomContentLoaded/smartLoad/smartNetworkIdle/smartVisible/smartStability`，并在回放调用 `smartWait(opts)` 时生效
+  - 验收标准：用户勾选的子项在回放中被执行；默认勾选 XHR 静默与元素稳定，其他子项可按需启用
+  - 测试方案：在含网络与动画的页面中切换子项组合，验证回放稳定性

@@ -58,6 +58,9 @@ export const App: React.FC = () => {
   // User Components State
   const [userComponents, setUserComponents] = useState<any[]>([]);
   const [isParamsModalOpen, setIsParamsModalOpen] = useState(false);
+  const [failureInfo, setFailureInfo] = useState<{ htmlSnippet: string; at: number } | null>(null);
+  const [failureRect, setFailureRect] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
+  const [isFailureModalOpen, setIsFailureModalOpen] = useState(false);
   const [componentDraft, setComponentDraft] = useState<{ name: string; steps: Step[] } | null>(null);
   const [paramSchema, setParamSchema] = useState<{ key: string; label?: string; defaultValue?: string }[]>([]);
   const [fieldBindings, setFieldBindings] = useState<{ stepIndex: number; path: string; paramKey: string }[]>([]);
@@ -91,9 +94,17 @@ export const App: React.FC = () => {
     const unsub = subscribeEvents(sessionId, {
       onScreenshot: (d) => setScreenshotBase64(d.base64),
       onDomUpdate: (d) => setInteractiveElements(d.interactive_elements || []),
-      onActionComplete: () => {
+      onActionComplete: (d) => {
+        const status = d?.status;
+        if (status === 'failed') {
+          const snippet = d?.result?.html_snippet || '';
+          setFailureInfo({ htmlSnippet: String(snippet).slice(0, 5000), at: Date.now() });
+          const r = d?.result?.rect;
+          if (r && typeof r.x === 'number') setFailureRect({ x: r.x, y: r.y, w: r.w, h: r.h });
+          setIsFailureModalOpen(true);
+        }
         if (lastRecordingStepId) {
-          setSteps(prev => prev.map(s => s.id === lastRecordingStepId ? { ...s, status: 'success' } : s));
+          setSteps(prev => prev.map(s => s.id === lastRecordingStepId ? { ...s, status: status === 'failed' ? 'failed' : 'success' } : s));
           setLastRecordingStepId(null);
         }
       }
@@ -293,7 +304,15 @@ export const App: React.FC = () => {
           }
           if (s.params && s.params['waitMode'] === 'smart') {
             const sel = getBestStaticSelectorForStep(s)
-            await smartWait(sessionId, { selector: sel, timeoutMs: Number(s.params?.timeoutMs || 3000), networkIdle: true, stability: true })
+            await smartWait(sessionId, {
+              selector: sel,
+              timeoutMs: Number(s.params?.timeoutMs || 3000),
+              domContentLoaded: !!s.params?.smartDomContentLoaded,
+              load: !!s.params?.smartLoad,
+              networkIdle: (s.params?.smartNetworkIdle ?? true) as boolean,
+              stability: (s.params?.smartStability ?? true) as boolean,
+              visible: !!s.params?.smartVisible
+            })
           }
           return
         }
@@ -316,7 +335,15 @@ export const App: React.FC = () => {
         }
         if (s.params && s.params['waitMode'] === 'smart') {
           const sel = getBestStaticSelectorForStep(s)
-          await smartWait(sessionId, { selector: sel, timeoutMs: Number(s.params?.timeoutMs || 3000), networkIdle: true, stability: true })
+          await smartWait(sessionId, {
+            selector: sel,
+            timeoutMs: Number(s.params?.timeoutMs || 3000),
+            domContentLoaded: !!s.params?.smartDomContentLoaded,
+            load: !!s.params?.smartLoad,
+            networkIdle: (s.params?.smartNetworkIdle ?? true) as boolean,
+            stability: (s.params?.smartStability ?? true) as boolean,
+            visible: !!s.params?.smartVisible
+          })
         }
       }
       if (step.type === StepType.COMPONENT && step.componentId) {
@@ -875,21 +902,25 @@ export const App: React.FC = () => {
           {/* Viewport */}
           <div className="flex-1 relative bg-slate-950 overflow-hidden">
              {activeMainTab === 'live' ? (
-               <BrowserPreview 
-                 url={url} 
-                 onUrlChange={handleUrlChange}
-                 onElementSelect={handleElementSelected}
-                 isInspecting={isInspecting}
-                 screenshotBase64={screenshotBase64}
-                 sessionId={sessionId || undefined}
-                 isStreaming={isStreaming}
-                 isKeyRecording={isKeyRecording}
-                 onToggleKeyRecording={handleToggleKeyRecording}
-                 onPlaybackKeys={handlePlaybackKeys}
+              <BrowserPreview 
+                url={url} 
+                onUrlChange={handleUrlChange}
+                onElementSelect={handleElementSelected}
+                isInspecting={isInspecting}
+                screenshotBase64={screenshotBase64}
+                sessionId={sessionId || undefined}
+                isStreaming={isStreaming}
+                isKeyRecording={isKeyRecording}
+                onToggleKeyRecording={handleToggleKeyRecording}
+                onPlaybackKeys={handlePlaybackKeys}
                 onKeyEvent={handleKeyEvent}
-                 inspectTrigger={inspectTrigger}
-                 keyCount={keyLog.filter(k => k.type==='down').length}
-                 textCount={inputBuffer.length}
+                inspectTrigger={inspectTrigger}
+                keyCount={keyLog.filter(k => k.type==='down').length}
+                textCount={inputBuffer.length}
+                failureInfo={failureInfo}
+                onClearFailure={() => setFailureInfo(null)}
+                onShowFailure={() => setIsFailureModalOpen(true)}
+                failureRect={failureRect}
               />
              ) : (
                <FlowGraph steps={steps} />
@@ -968,6 +999,35 @@ export const App: React.FC = () => {
         </aside>
 
       </main>
+      {isFailureModalOpen && failureInfo && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+          <div className="w-[720px] bg-slate-900 border border-slate-800 rounded-lg shadow-xl overflow-hidden">
+            <div className="p-3 border-b border-slate-800 flex items-center justify-between">
+              <div className="text-sm font-semibold text-red-400">断言失败快照</div>
+              <button onClick={() => setIsFailureModalOpen(false)} className="text-slate-400 text-xs">关闭</button>
+            </div>
+            <div className="p-4 grid grid-cols-2 gap-4">
+              <div>
+                <div className="text-xs text-slate-400 mb-2">截图</div>
+                <div className="border border-slate-700 rounded bg-black overflow-hidden">
+                  {screenshotBase64 ? (
+                    <img src={`data:image/jpeg;base64,${screenshotBase64}`} className="w-full h-auto" />
+                  ) : (
+                    <div className="text-[10px] text-slate-500 p-3">暂无截图</div>
+                  )}
+                </div>
+              </div>
+              <div>
+                <div className="text-xs text-slate-400 mb-2">DOM 片段</div>
+                <pre className="text-[11px] leading-relaxed bg-slate-950 border border-slate-700 rounded p-3 text-slate-300 overflow-auto max-h-[360px] whitespace-pre-wrap">{failureInfo.htmlSnippet}</pre>
+              </div>
+            </div>
+            <div className="p-3 border-t border-slate-800 flex items-center justify-end gap-2">
+              <button onClick={() => { setFailureInfo(null); setIsFailureModalOpen(false) }} className="text-xs px-3 py-1 bg-slate-800 border border-slate-700 rounded text-slate-300">清除</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
