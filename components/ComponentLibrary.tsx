@@ -28,6 +28,7 @@ interface TemplateConfig {
     type: StepType;
     componentId?: string;
     componentName?: string;
+    params?: Record<string, any>;
   };
 }
 
@@ -71,6 +72,10 @@ export const ComponentLibrary: React.FC<ComponentLibraryProps> = ({ onAddTemplat
   };
   
   const handleUserComponentClick = (comp: any) => {
+    let params: any = {}
+    if (Array.isArray(comp.paramsSchema)) {
+      comp.paramsSchema.forEach((p: any) => { if (p && p.key) params[p.key] = p.defaultValue || '' })
+    }
     const template: TemplateConfig = {
         id: comp.id,
         label: comp.name,
@@ -81,7 +86,8 @@ export const ComponentLibrary: React.FC<ComponentLibraryProps> = ({ onAddTemplat
             action: 'component',
             intent: `执行组件: ${comp.name}`,
             componentId: comp.id,
-            componentName: comp.name
+            componentName: comp.name,
+            params
         }
     };
     onAddTemplate(template);

@@ -48,6 +48,10 @@ export const App: React.FC = () => {
 
   // User Components State
   const [userComponents, setUserComponents] = useState<any[]>([]);
+  const [isParamsModalOpen, setIsParamsModalOpen] = useState(false);
+  const [componentDraft, setComponentDraft] = useState<{ name: string; steps: Step[] } | null>(null);
+  const [paramSchema, setParamSchema] = useState<{ key: string; label?: string; defaultValue?: string }[]>([]);
+  const [fieldBindings, setFieldBindings] = useState<{ stepIndex: number; path: string; paramKey: string }[]>([]);
 
   // Check for API Key on mount
   useEffect(() => {
@@ -95,16 +99,49 @@ export const App: React.FC = () => {
         setGeneratedCode("// 请添加步骤以生成脚本...");
         return;
       }
+      const applyParams = (obj: any, params: Record<string, any>) => {
+        if (!obj) return obj
+        if (typeof obj === 'string') {
+          let out = obj
+          for (const k of Object.keys(params || {})) {
+            out = out.replace(new RegExp(`\\{\\{${k}\\}\\}`, 'g'), String(params[k]))
+          }
+          return out
+        }
+        if (Array.isArray(obj)) return obj.map(v => applyParams(v, params))
+        if (typeof obj === 'object') {
+          const next: any = {}
+          for (const k of Object.keys(obj)) next[k] = applyParams(obj[k], params)
+          return next
+        }
+        return obj
+      }
+      const expand = (list: Step[]): Step[] => {
+        const out: Step[] = []
+        for (const s of list) {
+          if (s.type === StepType.COMPONENT && s.componentId) {
+            const comp = userComponents.find(c => c.id === s.componentId)
+            if (comp) {
+              for (const sub of comp.steps) {
+                const applied = applyParams(sub, s.params || {}) as Step
+                out.push(applied)
+              }
+            }
+          } else {
+            out.push(s)
+          }
+        }
+        return out
+      }
+      const effective = expand(steps)
       setIsLoadingCode(true);
-      // Debounce slightly to avoid flickering on fast step adds
-      const code = await generateTestScript(steps, mode);
+      const code = await generateTestScript(effective, mode);
       setGeneratedCode(code);
       setIsLoadingCode(false);
     };
-
-    const timer = setTimeout(updateCode, 500); // Debounce
+    const timer = setTimeout(updateCode, 500);
     return () => clearTimeout(timer);
-  }, [steps, mode]);
+  }, [steps, mode, userComponents]);
 
   // Handlers
   const handleInspectToggle = () => {
@@ -135,31 +172,43 @@ export const App: React.FC = () => {
     const selectedSteps = steps.filter(step => selectedStepIds.includes(step.id));
     if (selectedSteps.length < 2) return;
 
-    const newComponent = {
-      id: `comp-${Date.now()}`,
-      name: componentName,
-      steps: selectedSteps,
+    setComponentDraft({ name: componentName, steps: selectedSteps });
+    const detected: { stepIndex: number; path: string; value: string }[] = [];
+    selectedSteps.forEach((s, idx) => {
+      if (typeof s.intent === 'string' && s.intent) detected.push({ stepIndex: idx, path: 'intent', value: s.intent });
+      const sel = s.target?.selectors?.precise;
+      if (typeof sel === 'string' && sel) detected.push({ stepIndex: idx, path: 'target.selectors.precise', value: sel });
+      const sem = s.target?.selectors?.semantic;
+      if (typeof sem === 'string' && sem) detected.push({ stepIndex: idx, path: 'target.selectors.semantic', value: sem });
+      const txt = s.target?.selectors?.text;
+      if (typeof txt === 'string' && txt) detected.push({ stepIndex: idx, path: 'target.selectors.text', value: txt });
+      const desc = s.target?.description;
+      if (typeof desc === 'string' && desc) detected.push({ stepIndex: idx, path: 'target.description', value: desc });
+      const val = s.params && typeof s.params['value'] === 'string' ? String(s.params['value']) : '';
+      if (val) detected.push({ stepIndex: idx, path: 'params.value', value: val });
+    });
+    const suggestKey = (path: string) => {
+      if (path === 'intent') return 'intent';
+      if (path === 'target.selectors.precise') return 'selector';
+      if (path === 'target.selectors.semantic') return 'semantic';
+      if (path === 'target.selectors.text') return 'text';
+      if (path === 'target.description') return 'description';
+      if (path === 'params.value') return 'value';
+      const parts = path.split('.');
+      return parts[parts.length - 1] || 'param';
     };
-
-    setUserComponents(prev => [...prev, newComponent]);
-
-    const newComponentStep: Step = {
-      id: `step-${Date.now()}`,
-      type: StepType.COMPONENT,
-      action: 'component',
-      intent: `执行组件: ${componentName}`,
-      componentId: newComponent.id,
-      componentName: newComponent.name,
-      status: 'pending',
-    };
-
-    const firstSelectedIndex = steps.findIndex(step => step.id === selectedStepIds[0]);
-    const stepsWithoutSelected = steps.filter(step => !selectedStepIds.includes(step.id));
-    
-    stepsWithoutSelected.splice(firstSelectedIndex, 0, newComponentStep);
-    
-    setSteps(stepsWithoutSelected);
-    setSelectedStepIds([]);
+    const suggestions: { key: string; label?: string; defaultValue?: string }[] = [];
+    detected.forEach((d) => {
+      let base = suggestKey(d.path);
+      base = base.replace(/\s+/g, '_');
+      let key = base;
+      let n = 2;
+      while (suggestions.some(s => s.key === key)) { key = `${base}${n}`; n++; }
+      suggestions.push({ key, label: base, defaultValue: d.value });
+    });
+    setParamSchema(suggestions);
+    setFieldBindings(detected.map((d, i) => ({ stepIndex: d.stepIndex, path: d.path, paramKey: suggestions[i]?.key || '' })));
+    setIsParamsModalOpen(true);
   };
 
   const handleDeleteStep = (id: string) => {
@@ -179,11 +228,41 @@ export const App: React.FC = () => {
       if (!sessionId) return;
       setSteps(prev => prev.map(s => s.id === step.id ? { ...s, status: 'recording' } : s));
       setLastRecordingStepId(step.id);
-      if (mode === ScriptMode.STATIC) {
-        const sel = getBestStaticSelectorForStep(step);
-        await agentExec(sessionId, sel, step.action === 'click' ? 'click' : 'run');
+      const applyParams = (obj: any, params: Record<string, any>) => {
+        if (!obj) return obj
+        if (typeof obj === 'string') {
+          let out = obj
+          for (const k of Object.keys(params || {})) {
+            out = out.replace(new RegExp(`\\{\\{${k}\\}\\}`, 'g'), String(params[k]))
+          }
+          return out
+        }
+        if (Array.isArray(obj)) return obj.map(v => applyParams(v, params))
+        if (typeof obj === 'object') {
+          const next: any = {}
+          for (const k of Object.keys(obj)) next[k] = applyParams(obj[k], params)
+          return next
+        }
+        return obj
+      }
+      const runOne = async (s: Step) => {
+        if (mode === ScriptMode.STATIC) {
+          const sel = getBestStaticSelectorForStep(s)
+          await agentExec(sessionId, sel, s.action === 'click' ? 'click' : 'run')
+        } else {
+          await agentAct(sessionId, s.intent)
+        }
+      }
+      if (step.type === StepType.COMPONENT && step.componentId) {
+        const comp = userComponents.find(c => c.id === step.componentId)
+        if (comp) {
+          for (const sub of comp.steps) {
+            const applied = applyParams(sub, step.params || {})
+            await runOne(applied as Step)
+          }
+        }
       } else {
-        await agentAct(sessionId, step.intent);
+        await runOne(step)
       }
   };
   
@@ -205,9 +284,9 @@ export const App: React.FC = () => {
           status: 'pending',
           target: {
             description: template.label,
-            selectors: { precise: '' } // Will be filled by AI or manual logic later
+            selectors: { precise: '' }
           },
-          params: {}
+          params: template.stepData.action === 'component' ? (template.stepData.params || {}) : {}
       };
       setSteps([...steps, newStep]);
       setActiveSidebarTab('steps');
@@ -339,6 +418,93 @@ export const App: React.FC = () => {
 
   return (
     <div className="flex flex-col h-screen bg-slate-950 text-slate-100 overflow-hidden font-sans selection:bg-blue-500/30">
+      {isParamsModalOpen && componentDraft && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+          <div className="w-[720px] bg-slate-900 border border-slate-800 rounded-lg shadow-xl">
+            <div className="p-4 border-b border-slate-800 flex items-center justify-between">
+              <div className="text-sm font-semibold text-slate-200">组件参数模板</div>
+              <button onClick={() => { setIsParamsModalOpen(false); setComponentDraft(null); }} className="text-slate-400 text-xs">关闭</button>
+            </div>
+            <div className="p-4 grid grid-cols-2 gap-4">
+              <div>
+                <div className="text-xs font-semibold text-slate-400 mb-2">参数列表</div>
+                <div className="space-y-2">
+                  {paramSchema.map((p, i) => (
+                    <div key={i} className="flex items-center gap-2">
+                      <input value={p.key} onChange={(e) => {
+                        const v = e.target.value; const next = [...paramSchema]; next[i] = { ...next[i], key: v }; setParamSchema(next);
+                      }} placeholder="key" className="px-2 py-1 text-xs bg-slate-800 border border-slate-700 rounded text-slate-200 w-28" />
+                      <input value={p.label || ''} onChange={(e) => {
+                        const v = e.target.value; const next = [...paramSchema]; next[i] = { ...next[i], label: v }; setParamSchema(next);
+                      }} placeholder="label" className="px-2 py-1 text-xs bg-slate-800 border border-slate-700 rounded text-slate-200 flex-1" />
+                      <input value={p.defaultValue || ''} onChange={(e) => {
+                        const v = e.target.value; const next = [...paramSchema]; next[i] = { ...next[i], defaultValue: v }; setParamSchema(next);
+                      }} placeholder="default" className="px-2 py-1 text-xs bg-slate-800 border border-slate-700 rounded text-slate-200 w-32" />
+                      <button onClick={() => { const next = [...paramSchema]; next.splice(i,1); setParamSchema(next); }} className="text-[10px] text-red-400 px-2 py-1">移除</button>
+                    </div>
+                  ))}
+                  <button onClick={() => setParamSchema(prev => [...prev, { key: '', label: '', defaultValue: '' }])} className="mt-2 text-xs px-2 py-1 bg-slate-800 border border-slate-700 rounded text-slate-300">新增参数</button>
+                </div>
+              </div>
+              <div>
+                <div className="text-xs font-semibold text-slate-400 mb-2">字段绑定</div>
+                <div className="space-y-2 max-h-64 overflow-auto pr-1">
+                  {fieldBindings.map((b, i) => (
+                    <div key={i} className="flex items-center gap-2">
+                      <span className="text-[10px] text-slate-500 w-36">步骤 {b.stepIndex+1} · {b.path}</span>
+                      <select value={b.paramKey} onChange={(e) => {
+                        const v = e.target.value; const next = [...fieldBindings]; next[i] = { ...next[i], paramKey: v }; setFieldBindings(next);
+                      }} className="px-2 py-1 text-xs bg-slate-800 border border-slate-700 rounded text-slate-200 flex-1">
+                        <option value="">不绑定</option>
+                        {paramSchema.map(p => (<option key={p.key} value={p.key}>{p.key}</option>))}
+                      </select>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+            <div className="p-4 border-t border-slate-800 flex items-center justify-end gap-2">
+              <button onClick={() => { setIsParamsModalOpen(false); setComponentDraft(null); }} className="text-xs px-3 py-1 bg-slate-800 border border-slate-700 rounded text-slate-300">取消</button>
+              <button onClick={() => {
+                if (!componentDraft) return;
+                const trimmedKeys = paramSchema.map(p => (p.key || '').trim());
+                const hasEmpty = trimmedKeys.some(k => !k);
+                const uniq = new Set(trimmedKeys.filter(k => k));
+                const hasDup = uniq.size !== trimmedKeys.filter(k => k).length;
+                if (hasEmpty || hasDup) {
+                  alert('参数 key 不可为空且需唯一');
+                  return;
+                }
+                const paramsObject: Record<string, any> = {};
+                paramSchema.forEach(p => { if (p.key) paramsObject[p.key.trim()] = p.defaultValue || '' });
+                const applyBinding = (s: Step, binding: { path: string; key: string }): Step => {
+                  const clone = JSON.parse(JSON.stringify(s));
+                  const parts = binding.path.split('.');
+                  let ref: any = clone;
+                  for (let j=0;j<parts.length-1;j++){ const k=parts[j]; ref[k] = ref[k] ?? {}; ref = ref[k]; }
+                  const leaf = parts[parts.length-1];
+                  ref[leaf] = `{{${binding.key}}}`;
+                  return clone as Step;
+                }
+                let newSteps = componentDraft.steps.map(s => ({...s}));
+                fieldBindings.filter(b => b.paramKey).forEach(b => {
+                  newSteps[b.stepIndex] = applyBinding(newSteps[b.stepIndex], { path: b.path, key: b.paramKey.trim() });
+                });
+                const newComponent = { id: `comp-${Date.now()}`, name: componentDraft.name, steps: newSteps, paramsSchema: paramSchema };
+                setUserComponents(prev => [...prev, newComponent]);
+                const newComponentStep: Step = { id: `step-${Date.now()}`, type: StepType.COMPONENT, action: 'component', intent: `执行组件: ${componentDraft.name}`, componentId: newComponent.id, componentName: newComponent.name, status: 'pending', params: paramsObject };
+                const firstSelectedIndex = steps.findIndex(step => step.id === selectedStepIds[0]);
+                const stepsWithoutSelected = steps.filter(step => !selectedStepIds.includes(step.id));
+                stepsWithoutSelected.splice(firstSelectedIndex, 0, newComponentStep);
+                setSteps(stepsWithoutSelected);
+                setSelectedStepIds([]);
+                setIsParamsModalOpen(false);
+                setComponentDraft(null);
+              }} className="text-xs px-3 py-1 bg-blue-600 hover:bg-blue-500 text-white rounded">保存并插入</button>
+            </div>
+          </div>
+        </div>
+      )}
       
       <ActionMenu
         isOpen={isActionMenuOpen}
