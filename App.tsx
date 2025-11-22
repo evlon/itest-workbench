@@ -9,7 +9,7 @@ import { EditStepModal } from './components/EditStepModal';
 import { ActionMenu } from './components/ActionMenu';
 import { generateTestScript, parseIntentToStepRefined } from './services/aiService';
 import { refineStepTarget, getBestStaticSelectorForStep } from './services/selectorRefiner';
-import { startSession, stopSession, subscribeEvents, exec as agentExec, act as agentAct, observe as agentObserve, startStream as agentStartStream, stopStream as agentStopStream } from './services/agentClient';
+import { startSession, stopSession, subscribeEvents, exec as agentExec, act as agentAct, observe as agentObserve, startStream as agentStartStream, stopStream as agentStopStream, keypress as agentKeypress, focused as agentFocused } from './services/agentClient';
 import { Step, ScriptMode, StepType, StepTarget } from './types';
 import { Play, Square, Download, Sparkles, Zap, Layout, Code, Bot, Settings, AlertTriangle, List, Package, Target } from 'lucide-react';
 
@@ -24,6 +24,8 @@ export const App: React.FC = () => {
   const [mode, setMode] = useState<ScriptMode>(ScriptMode.DYNAMIC);
   const [generatedCode, setGeneratedCode] = useState<string>("// 生成的代码将显示在这里...");
   const [isInspecting, setIsInspecting] = useState(false);
+  const [isKeyRecording, setIsKeyRecording] = useState(false);
+  const [keyLog, setKeyLog] = useState<{ type: 'down'|'up'; key: string; ctrl: boolean; alt: boolean; shift: boolean; meta: boolean; t: number }[]>([]);
   const [isLoadingCode, setIsLoadingCode] = useState(false);
   const [aiInput, setAiInput] = useState("");
   const [activeMainTab, setActiveMainTab] = useState<'live' | 'flow'>('live');
@@ -35,6 +37,8 @@ export const App: React.FC = () => {
   const [lastRecordingStepId, setLastRecordingStepId] = useState<string | null>(null);
   const [isStreaming, setIsStreaming] = useState(false);
   const [isHeadless, setIsHeadless] = useState(true);
+  const [inspectTrigger, setInspectTrigger] = useState<'ctrlOrMeta' | 'alt' | 'shift'>('ctrlOrMeta');
+  const [inputBuffer, setInputBuffer] = useState('');
   
   // Editing State
   const [editingStep, setEditingStep] = useState<Step | null>(null);
@@ -149,12 +153,36 @@ export const App: React.FC = () => {
   }, [steps, mode, userComponents]);
 
   // Handlers
-  const handleInspectToggle = () => {
+  const handleInspectToggle = async () => {
     const nextState = !isInspecting;
     setIsInspecting(nextState);
     if (nextState) {
-        // If starting inspect, ensure we are on the live preview
         setActiveMainTab('live');
+        if (sessionId && !isStreaming) {
+          try { await agentStartStream(sessionId, 1000); setIsStreaming(true); } catch {}
+        }
+    }
+  };
+
+  const handleToggleKeyRecording = () => {
+    setIsKeyRecording(v => {
+      const next = !v;
+      if (!next && inputBuffer && sessionId) {
+        flushInputBuffer();
+      }
+      return next;
+    });
+  };
+
+  const handlePlaybackKeys = async () => {
+    if (!sessionId) return;
+    for (const evt of keyLog) {
+      if (evt.type === 'down') {
+        await agentKeypress(sessionId, { type: 'press', key: evt.key, ctrl: evt.ctrl, alt: evt.alt, shift: evt.shift, meta: evt.meta });
+      }
+    }
+    if (inputBuffer) {
+      await agentKeypress(sessionId, { type: 'type', text: inputBuffer });
     }
   };
 
@@ -341,11 +369,77 @@ export const App: React.FC = () => {
     } as Step : s));
   };
 
-  const handleElementSelected = async (payload: { target: StepTarget }) => {
-    setIsInspecting(false);
+  const handleElementSelected = async (payload: { target: StepTarget, ctrl?: boolean }) => {
     const refined = refineStepTarget(payload.target);
     setSelectedElement(refined);
-    setIsActionMenuOpen(true);
+    if (payload.ctrl) {
+      setIsActionMenuOpen(true);
+      return;
+    }
+    const newStep: Step = {
+      id: Math.random().toString(36).substr(2, 9),
+      type: StepType.INTERACTION,
+      intent: `点击 ${refined.description}`,
+      action: 'click',
+      target: refined,
+      params: {},
+      status: 'success'
+    };
+    setSteps([...steps, newStep]);
+    setActiveSidebarTab('steps');
+    setActiveStepId(newStep.id);
+    if (sessionId) {
+      setLastRecordingStepId(newStep.id);
+      if (mode === ScriptMode.STATIC) {
+        const sel = getBestStaticSelectorForStep(newStep);
+        await agentExec(sessionId, sel, 'click');
+      } else {
+        await agentAct(sessionId, newStep.intent);
+      }
+    }
+  };
+
+  const handleKeyEvent = (evt: { type: 'down' | 'up'; key: string; ctrl: boolean; alt: boolean; shift: boolean; meta: boolean }) => {
+    setKeyLog(prev => prev.concat([{ ...evt, t: Date.now() }]));
+    const printable = evt.key && evt.key.length === 1 && !evt.ctrl && !evt.alt && !evt.meta;
+    if (evt.type === 'down' && printable) {
+      setInputBuffer(buf => buf + evt.key);
+      return;
+    }
+    if (evt.type === 'down') {
+      const newStep: Step = {
+        id: Math.random().toString(36).substr(2, 9),
+        type: StepType.INTERACTION,
+        intent: `按键 ${evt.key}`,
+        action: 'keypress',
+        status: 'success',
+        params: { key: evt.key, ctrl: evt.ctrl, alt: evt.alt, shift: evt.shift, meta: evt.meta },
+      } as Step;
+      setSteps([...steps, newStep]);
+      setActiveSidebarTab('steps');
+      setActiveStepId(newStep.id);
+    }
+  };
+
+  const flushInputBuffer = async () => {
+    if (!sessionId || !inputBuffer) return;
+    const meta = await agentFocused(sessionId);
+    const focusedEl = meta?.focused;
+    const target: StepTarget | undefined = focusedEl ? { description: focusedEl.description, selectors: focusedEl.selectors } as any : undefined;
+    const newStep: Step = {
+      id: Math.random().toString(36).substr(2, 9),
+      type: StepType.INTERACTION,
+      intent: target ? `在 ${target.description} 中输入值` : `输入文本`,
+      action: 'input',
+      target,
+      params: { value: inputBuffer },
+      status: 'success'
+    } as Step;
+    setSteps([...steps, newStep]);
+    setActiveSidebarTab('steps');
+    setActiveStepId(newStep.id);
+    await agentKeypress(sessionId, { type: 'type', text: inputBuffer });
+    setInputBuffer('');
   };
 
   const handleCloseActionMenu = () => {
@@ -353,7 +447,7 @@ export const App: React.FC = () => {
     setSelectedElement(null);
   };
 
-  const handleActionSelected = async (action: 'click' | 'input' | 'assertVisible' | 'assertText') => {
+  const handleActionSelected = async (action: 'click' | 'input' | 'assertVisible' | 'assertText' | 'custom') => {
     if (!selectedElement) return;
 
     let type = StepType.INTERACTION;
@@ -381,6 +475,11 @@ export const App: React.FC = () => {
         intent = `验证 ${selectedElement.description} 的文本`;
         // This might require a subsequent modal to get the value, for now, we'll use a placeholder
         break;
+      case 'custom':
+        newAction = 'wait';
+        type = StepType.CUSTOM;
+        intent = `自定义操作: ${selectedElement.description}`;
+        break;
     }
 
     const newStep: Step = {
@@ -395,6 +494,9 @@ export const App: React.FC = () => {
     setSteps([...steps, newStep]);
     setActiveSidebarTab('steps');
     handleCloseActionMenu();
+    if (newAction === 'wait' && type === StepType.CUSTOM) {
+      setEditingStep(newStep);
+    }
     if (sessionId) {
       setLastRecordingStepId(newStep.id);
       if (mode === ScriptMode.STATIC) {
@@ -719,6 +821,15 @@ export const App: React.FC = () => {
               >
                 {isStreaming ? '流式预览：开' : '流式预览：关'}
               </button>
+              <select
+                value={inspectTrigger}
+                onChange={(e) => setInspectTrigger(e.target.value as any)}
+                className="text-xs px-2 py-1 rounded border bg-slate-800 text-slate-300 border-slate-700"
+              >
+                <option value="ctrlOrMeta">菜单触发键：Ctrl/⌘</option>
+                <option value="alt">菜单触发键：Alt</option>
+                <option value="shift">菜单触发键：Shift</option>
+              </select>
             </div>
           </div>
 
@@ -733,6 +844,11 @@ export const App: React.FC = () => {
                  screenshotBase64={screenshotBase64}
                  sessionId={sessionId || undefined}
                  isStreaming={isStreaming}
+                 isKeyRecording={isKeyRecording}
+                 onToggleKeyRecording={handleToggleKeyRecording}
+                 onPlaybackKeys={handlePlaybackKeys}
+                 onKeyEvent={handleKeyEvent}
+                 inspectTrigger={inspectTrigger}
               />
              ) : (
                <FlowGraph steps={steps} />

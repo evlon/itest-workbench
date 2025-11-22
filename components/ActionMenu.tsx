@@ -1,12 +1,12 @@
 import React from 'react';
-import { MousePointer2, Type, Eye, CheckCircle, X } from 'lucide-react';
+import { MousePointer2, Type, Eye, CheckCircle, X, Sparkles } from 'lucide-react';
 import { StepTarget, StepType } from '../types';
 
 interface ActionMenuProps {
   isOpen: boolean;
   target: StepTarget | null;
   onClose: () => void;
-  onActionSelect: (action: 'click' | 'input' | 'assertVisible' | 'assertText') => void;
+  onActionSelect: (action: 'click' | 'input' | 'assertVisible' | 'assertText' | 'custom') => void;
 }
 
 export const ActionMenu: React.FC<ActionMenuProps> = ({ isOpen, target, onClose, onActionSelect }) => {
@@ -14,10 +14,19 @@ export const ActionMenu: React.FC<ActionMenuProps> = ({ isOpen, target, onClose,
     return null;
   }
 
-  const handleActionClick = (action: 'click' | 'input' | 'assertVisible' | 'assertText') => {
+  const handleActionClick = (action: 'click' | 'input' | 'assertVisible' | 'assertText' | 'custom') => {
     onActionSelect(action);
     onClose();
   };
+
+  const guessType = () => {
+    const s = target.selectors?.precise || ''
+    if (/input|textarea|field/i.test(s)) return 'input'
+    if (/button/i.test(s)) return 'button'
+    if (/a\b|link/i.test(s)) return 'link'
+    return 'element'
+  }
+  const etype = guessType()
 
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center animate-in fade-in-50" onClick={onClose}>
@@ -41,20 +50,24 @@ export const ActionMenu: React.FC<ActionMenuProps> = ({ isOpen, target, onClose,
         </div>
 
         <div className="grid grid-cols-1 gap-2">
-            <button
-                onClick={() => handleActionClick('click')}
-                className="w-full text-left px-3 py-2 text-sm text-slate-300 hover:bg-slate-800 rounded flex items-center gap-3 transition-colors group"
-            >
-                <MousePointer2 size={16} className="text-slate-500 group-hover:text-blue-400" />
-                <span>点击 (Click)</span>
-            </button>
-            <button
-                onClick={() => handleActionClick('input')}
-                className="w-full text-left px-3 py-2 text-sm text-slate-300 hover:bg-slate-800 rounded flex items-center gap-3 transition-colors group"
-            >
-                <Type size={16} className="text-slate-500 group-hover:text-blue-400" />
-                <span>输入 (Input)</span>
-            </button>
+            {['button','link','element'].includes(etype) && (
+              <button
+                  onClick={() => handleActionClick('click')}
+                  className="w-full text-left px-3 py-2 text-sm text-slate-300 hover:bg-slate-800 rounded flex items-center gap-3 transition-colors group"
+              >
+                  <MousePointer2 size={16} className="text-slate-500 group-hover:text-blue-400" />
+                  <span>点击 (Click)</span>
+              </button>
+            )}
+            {etype === 'input' && (
+              <button
+                  onClick={() => handleActionClick('input')}
+                  className="w-full text-left px-3 py-2 text-sm text-slate-300 hover:bg-slate-800 rounded flex items-center gap-3 transition-colors group"
+              >
+                  <Type size={16} className="text-slate-500 group-hover:text-blue-400" />
+                  <span>输入 (Input)</span>
+              </button>
+            )}
             <button
                 onClick={() => handleActionClick('assertVisible')}
                 className="w-full text-left px-3 py-2 text-sm text-slate-300 hover:bg-slate-800 rounded flex items-center gap-3 transition-colors group"
@@ -68,6 +81,13 @@ export const ActionMenu: React.FC<ActionMenuProps> = ({ isOpen, target, onClose,
             >
                 <CheckCircle size={16} className="text-slate-500 group-hover:text-blue-400" />
                 <span>断言文本 (Assert Text)</span>
+            </button>
+            <button
+                onClick={() => handleActionClick('custom')}
+                className="w-full text-left px-3 py-2 text-sm text-slate-300 hover:bg-slate-800 rounded flex items-center gap-3 transition-colors group"
+            >
+                <Sparkles size={16} className="text-slate-500 group-hover:text-blue-400" />
+                <span>自定义操作</span>
             </button>
         </div>
       </div>

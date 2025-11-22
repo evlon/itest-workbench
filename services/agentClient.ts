@@ -45,6 +45,20 @@ export const observe = async (sessionId: string, instruction: string) => {
   return res.json()
 }
 
+export const keypress = async (sessionId: string, payload: { key?: string, text?: string, type: 'press' | 'type', ctrl?: boolean, alt?: boolean, shift?: boolean, meta?: boolean }) => {
+  const res = await fetch(`${BASE_URL}/action/keypress`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sessionId, ...payload })
+  })
+  return res.json()
+}
+
+export const focused = async (sessionId: string) => {
+  const res = await fetch(`${BASE_URL}/action/focused?sessionId=${encodeURIComponent(sessionId)}`)
+  return res.json()
+}
+
 export const startStream = async (sessionId: string, intervalMs?: number) => {
   const res = await fetch(`${BASE_URL}/stream/start`, {
     method: 'POST',

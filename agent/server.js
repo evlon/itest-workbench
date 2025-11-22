@@ -232,6 +232,90 @@ const server = http.createServer(async (req, res) => {
     return sendJson(res, 200, { status: 'processing' })
   }
 
+  if (req.method === 'POST' && pathname === '/action/keypress') {
+    const body = await parseBody(req)
+    const session = sessions.get(body.sessionId)
+    if (!session) return sendJson(res, 400, { error: 'invalid_session' })
+    const page = session.page
+    for (const client of session.clients) writeEvent(client, 'log', { level: 'info', message: `keypress: ${body.type} ${body.key || body.text || ''}`, timestamp: Date.now() })
+    try {
+      if (body.type === 'type' && typeof body.text === 'string') {
+        await page.keyboard.type(body.text)
+      } else if (body.type === 'press' && typeof body.key === 'string') {
+        await page.keyboard.press(body.key, { modifiers: [body.ctrl ? 'Control' : null, body.alt ? 'Alt' : null, body.shift ? 'Shift' : null, body.meta ? 'Meta' : null].filter(Boolean) })
+      }
+    } catch {}
+    let shot = ''
+    try {
+      const buf = await page.screenshot({ fullPage: true, type: 'jpeg', quality: 60 })
+      const hash = createHash('md5').update(buf).digest('hex')
+      if (hash !== session.lastHash) {
+        session.lastHash = hash
+        shot = buf.toString('base64')
+        session.lastScreenshot = shot
+        for (const client of session.clients) writeEvent(client, 'screenshot', { base64: shot, timestamp: Date.now() })
+        for (const ws of session.wsClients) {
+          if (ws.readyState === 1) {
+            try { ws.send(buf) } catch {}
+          }
+        }
+      }
+    } catch {}
+    for (const client of session.clients) writeEvent(client, 'dom-update', { html_snippet: '<div>mock</div>', interactive_elements: [] })
+    for (const client of session.clients) writeEvent(client, 'action-complete', { status: 'success', result: {} })
+    return sendJson(res, 200, { status: 'processing' })
+  }
+
+  if (req.method === 'GET' && pathname === '/action/focused') {
+    const sessionId = parsed.query.sessionId
+    const session = sessions.get(sessionId)
+    if (!session) return sendJson(res, 400, { error: 'invalid_session' })
+    const page = session.page
+    let result = null
+    try {
+      result = await page.evaluate(() => {
+        const el = document.activeElement
+        if (!el) return null
+        const buildSelector = (node) => {
+          if (!node) return ''
+          const tag = node.tagName ? node.tagName.toLowerCase() : ''
+          const id = node.id ? `#${CSS.escape(node.id)}` : ''
+          const testid = node.getAttribute('data-testid')
+          const name = node.getAttribute('name')
+          const aria = node.getAttribute('aria-label')
+          if (id) return id
+          if (testid) return `[data-testid="${CSS.escape(testid)}"]`
+          if (aria) return `[aria-label="${CSS.escape(aria)}"]`
+          if (name) return `${tag}[name="${CSS.escape(name)}"]`
+          const classes = Array.from(node.classList || [])
+          const stable = classes.filter(c => c && c.length <= 24 && !/\d{4,}/.test(c)).slice(0, 2)
+          if (stable.length) return `${tag}.${stable.map(c => CSS.escape(c)).join('.')}`
+          let path = tag
+          let cur = node
+          while (cur && cur.parentElement) {
+            const parent = cur.parentElement
+            const children = Array.from(parent.children)
+            const idx = children.indexOf(cur) + 1
+            path = `${parent.tagName.toLowerCase()} > ${path}:nth-child(${idx})`
+            cur = parent
+            if (path.length > 120) break
+          }
+          return path
+        }
+        const rect = el.getBoundingClientRect()
+        const text = (el.textContent || '').trim().slice(0, 80)
+        const selector = buildSelector(el)
+        return {
+          description: `${el.tagName.toLowerCase()}${text ? `: ${text}` : ''}`,
+          rect: { x: rect.left, y: rect.top, width: rect.width, height: rect.height },
+          selectors: { precise: selector, text }
+        }
+      })
+    } catch {}
+    if (!result) return sendJson(res, 200, { focused: null })
+    return sendJson(res, 200, { focused: result })
+  }
+
   if (req.method === 'GET' && pathname === '/session/meta') {
     const sessionId = parsed.query.sessionId
     const session = sessions.get(sessionId)

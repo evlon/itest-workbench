@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { ArrowLeft, ArrowRight, RefreshCw, Lock, MonitorPlay, Wifi, MousePointer2 } from 'lucide-react';
+import { ArrowLeft, ArrowRight, RefreshCw, Lock, MonitorPlay, Wifi, MousePointer2, Type as TypeIcon, Play } from 'lucide-react';
 
 interface BrowserPreviewProps {
   url: string;
@@ -9,6 +9,11 @@ interface BrowserPreviewProps {
   screenshotBase64?: string;
   sessionId?: string;
   isStreaming?: boolean;
+  isKeyRecording?: boolean;
+  onToggleKeyRecording?: () => void;
+  onPlaybackKeys?: () => void;
+  onKeyEvent?: (evt: { type: 'down' | 'up'; key: string; ctrl: boolean; alt: boolean; shift: boolean; meta: boolean }) => void;
+  inspectTrigger?: 'ctrlOrMeta' | 'alt' | 'shift';
 }
 
 /**
@@ -20,7 +25,7 @@ interface BrowserPreviewProps {
  * which would then return the results. For this simulation, we are faking
  * these interactions and the returned data.
  */
-export const BrowserPreview: React.FC<BrowserPreviewProps> = ({ url, onUrlChange, onElementSelect, isInspecting, screenshotBase64, sessionId, isStreaming }) => {
+export const BrowserPreview: React.FC<BrowserPreviewProps> = ({ url, onUrlChange, onElementSelect, isInspecting, screenshotBase64, sessionId, isStreaming, isKeyRecording, onToggleKeyRecording, onPlaybackKeys, onKeyEvent, inspectTrigger = 'ctrlOrMeta' }) => {
   const [inputUrl, setInputUrl] = useState(url);
   const [isLoading, setIsLoading] = useState(true);
   const viewportRef = useRef<HTMLDivElement>(null);
@@ -99,13 +104,39 @@ export const BrowserPreview: React.FC<BrowserPreviewProps> = ({ url, onUrlChange
     }
   }, [sessionId, isStreaming])
 
+  useEffect(() => {
+    const onDown = (e: KeyboardEvent) => {
+      if (!sessionId || !isKeyRecording) return
+      const payload = { type: 'down' as const, key: e.key, ctrl: !!e.ctrlKey, alt: !!e.altKey, shift: !!e.shiftKey, meta: !!e.metaKey }
+      onKeyEvent?.(payload)
+      fetch(`${(import.meta as any).env?.VITE_AGENT_URL || 'http://localhost:3000'}/action/keypress`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId, type: 'press', key: e.key, ctrl: !!e.ctrlKey, alt: !!e.altKey, shift: !!e.shiftKey, meta: !!e.metaKey })
+      }).catch(() => {})
+    }
+    const onUp = (e: KeyboardEvent) => {
+      if (!sessionId || !isKeyRecording) return
+      const payload = { type: 'up' as const, key: e.key, ctrl: !!e.ctrlKey, alt: !!e.altKey, shift: !!e.shiftKey, meta: !!e.metaKey }
+      onKeyEvent?.(payload)
+    }
+    if (isKeyRecording) {
+      window.addEventListener('keydown', onDown)
+      window.addEventListener('keyup', onUp)
+    }
+    return () => {
+      window.removeEventListener('keydown', onDown)
+      window.removeEventListener('keyup', onUp)
+    }
+  }, [isKeyRecording, sessionId])
+
   const handleUrlSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     onUrlChange(inputUrl);
   };
   
   const handleViewportClick = (e: React.MouseEvent) => {
-    if (isInspecting && !isLoading && sessionId) {
+    if (!isLoading && sessionId) {
       const rect = e.currentTarget.getBoundingClientRect();
       const cx = e.clientX - rect.left;
       const cy = e.clientY - rect.top;
@@ -130,7 +161,21 @@ export const BrowserPreview: React.FC<BrowserPreviewProps> = ({ url, onUrlChange
             height: hit.rect.height * (canvas.height / fs.h)
           } : null)
           console.log('overlay-set', hit.rect)
-          onElementSelect({ target: { description: hit.description, selectors: hit.selectors } })
+          const triggerHit = inspectTrigger === 'ctrlOrMeta' ? (e.ctrlKey || (e as any).metaKey) : inspectTrigger === 'alt' ? !!e.altKey : !!e.shiftKey
+          if (isInspecting && triggerHit) {
+            onElementSelect({ target: { description: hit.description, selectors: hit.selectors }, ctrl: true })
+          } else if (isInspecting && !triggerHit) {
+            onElementSelect({ target: { description: hit.description, selectors: hit.selectors } })
+          } else {
+            const precise = hit.selectors?.precise || ''
+            if (precise) {
+              fetch(`${(import.meta as any).env?.VITE_AGENT_URL || 'http://localhost:3000'}/action/exec`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ sessionId, selector: precise, method: 'click' })
+              }).catch(() => {})
+            }
+          }
         }
       }).catch(() => {})
     }
@@ -176,6 +221,14 @@ export const BrowserPreview: React.FC<BrowserPreviewProps> = ({ url, onUrlChange
             <ArrowLeft size={16} className="text-slate-600" />
             <ArrowRight size={16} className="text-slate-600" />
             <RefreshCw size={14} className="hover:text-slate-200 cursor-pointer" onClick={() => onUrlChange(url)}/>
+        </div>
+        <div className="flex items-center gap-2">
+          <button onClick={onToggleKeyRecording} className={`text-xs px-2 py-1 rounded border ${isKeyRecording ? 'bg-green-600 text-white border-green-500' : 'bg-slate-800 text-slate-300 border-slate-700'}`}>
+            <span className="inline-flex items-center gap-1"><TypeIcon size={12} />{isKeyRecording ? '键盘录制中' : '开始键盘录制'}</span>
+          </button>
+          <button onClick={onPlaybackKeys} className="text-xs px-2 py-1 rounded border bg-slate-800 text-slate-300 border-slate-700">
+            <span className="inline-flex items-center gap-1"><Play size={12} />播放录制</span>
+          </button>
         </div>
         
         <form onSubmit={handleUrlSubmit} className="flex-1 flex items-center bg-slate-950 border border-slate-700 rounded-full px-3 py-1.5 text-xs shadow-sm focus-within:border-blue-500 transition-colors">
@@ -248,6 +301,9 @@ export const BrowserPreview: React.FC<BrowserPreviewProps> = ({ url, onUrlChange
                   <span className="flex items-center gap-1 text-slate-600">
                       <Wifi size={10} /> 24ms 延迟
                   </span>
+              )}
+              {isKeyRecording && (
+                <span className="flex items-center gap-1 text-green-500">键盘录制已开启</span>
               )}
           </div>
           <span className="text-slate-600">模拟远程浏览器</span>
