@@ -12,6 +12,9 @@ import { refineStepTarget, getBestStaticSelectorForStep } from './services/selec
 import { startSession, stopSession, subscribeEvents, exec as agentExec, act as agentAct, observe as agentObserve, startStream as agentStartStream, stopStream as agentStopStream, keypress as agentKeypress, focused as agentFocused, assertRemote, waitRemote, smartWait, getPages, activatePage } from './services/agentClient';
 import { Step, ScriptMode, StepType, StepTarget } from './types';
 import { Play, Square, Download, Sparkles, Zap, Layout, Code, Bot, Settings, AlertTriangle, List, Package, Target } from 'lucide-react';
+import { Button } from './components/ui/Button'
+import { Modal } from './components/ui/Modal'
+import { Tabs } from './components/ui/Tabs'
 
 // Constants
 const INITIAL_URL = "http://localhost:3000/test.html";
@@ -632,132 +635,140 @@ export const App: React.FC = () => {
   return (
     <div className="flex flex-col h-screen bg-slate-950 text-slate-100 overflow-hidden font-sans selection:bg-blue-500/30">
       {isCreateModalOpen && activeSidebarTab === 'steps' && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-          <div className="w-[560px] bg-slate-900 border border-slate-800 rounded-lg shadow-xl">
-            <div className="p-4 border-b border-slate-800 flex items-center justify-between">
-              <div className="text-sm font-semibold text-slate-200">创建组件</div>
-              <button onClick={() => setIsCreateModalOpen(false)} className="text-slate-400 text-xs">关闭</button>
+        <Modal
+          open={true}
+          title="创建组件"
+          onClose={() => setIsCreateModalOpen(false)}
+          footer={(
+            <>
+              <Button onClick={() => setIsCreateModalOpen(false)}>取消</Button>
+              <Button
+                variant={createName.trim() ? 'primary' : 'secondary'}
+                disabled={!createName.trim()}
+                onClick={() => {
+                  const name = createName.trim();
+                  if (!name) return;
+                  const selectedSteps = steps.filter(step => selectedStepIds.includes(step.id));
+                  if (selectedSteps.length < 2) return;
+                  const slug = name.toLowerCase().replace(/\s+/g, '-');
+                  const createdAt = Date.now();
+                  const newComponent = { id: `comp-${createdAt}`, name, slug, description: createDesc.trim(), createdAt, steps: selectedSteps.map(s => ({...s})), paramsSchema: [] };
+                  setUserComponents(prev => [...prev, newComponent]);
+                  const newComponentStep: Step = { id: `step-${Date.now()}`, type: StepType.COMPONENT, action: 'component', intent: `执行组件: ${newComponent.name}`, componentId: newComponent.id, componentName: newComponent.name, status: 'pending', params: {} };
+                  const firstSelectedIndex = steps.findIndex(step => step.id === selectedStepIds[0]);
+                  const stepsWithoutSelected = steps.filter(step => !selectedStepIds.includes(step.id));
+                  stepsWithoutSelected.splice(firstSelectedIndex, 0, newComponentStep);
+                  setSteps(stepsWithoutSelected);
+                  setSelectedStepIds([]);
+                  setIsCreateModalOpen(false);
+                  setIsExtractMode(false);
+                }}
+              >确认创建</Button>
+            </>
+          )}
+        >
+          <div className="space-y-3">
+            <div>
+              <div className="text-xs text-slate-400 mb-1">组件名称（必填）</div>
+              <input value={createName} onChange={(e) => setCreateName(e.target.value)} placeholder="请输入组件名称" className="w-full px-2 py-1 text-sm bg-slate-800 border border-slate-700 rounded text-slate-200" />
             </div>
-            <div className="p-4 space-y-3">
-              <div>
-                <div className="text-xs text-slate-400 mb-1">组件名称（必填）</div>
-                <input value={createName} onChange={(e) => setCreateName(e.target.value)} placeholder="请输入组件名称" className="w-full px-2 py-1 text-sm bg-slate-800 border border-slate-700 rounded text-slate-200" />
-              </div>
-              <div>
-                <div className="text-xs text-slate-400 mb-1">组件描述（可选）</div>
-                <textarea value={createDesc} onChange={(e) => setCreateDesc(e.target.value)} placeholder="用于说明此组件用途" className="w-full px-2 py-1 text-sm bg-slate-800 border border-slate-700 rounded text-slate-200 min-h-[80px]" />
-              </div>
-            </div>
-            <div className="p-4 border-t border-slate-800 flex items-center justify-end gap-2">
-              <button onClick={() => setIsCreateModalOpen(false)} className="text-xs px-3 py-1 bg-slate-800 border border-slate-700 rounded text-slate-300">取消</button>
-              <button onClick={() => {
-                const name = createName.trim();
-                if (!name) return;
-                const selectedSteps = steps.filter(step => selectedStepIds.includes(step.id));
-                if (selectedSteps.length < 2) return;
-                const slug = name.toLowerCase().replace(/\s+/g, '-');
-                const createdAt = Date.now();
-                const newComponent = { id: `comp-${createdAt}`, name, slug, description: createDesc.trim(), createdAt, steps: selectedSteps.map(s => ({...s})), paramsSchema: [] };
-                setUserComponents(prev => [...prev, newComponent]);
-                const newComponentStep: Step = { id: `step-${Date.now()}`, type: StepType.COMPONENT, action: 'component', intent: `执行组件: ${newComponent.name}`, componentId: newComponent.id, componentName: newComponent.name, status: 'pending', params: {} };
-                const firstSelectedIndex = steps.findIndex(step => step.id === selectedStepIds[0]);
-                const stepsWithoutSelected = steps.filter(step => !selectedStepIds.includes(step.id));
-                stepsWithoutSelected.splice(firstSelectedIndex, 0, newComponentStep);
-                setSteps(stepsWithoutSelected);
-                setSelectedStepIds([]);
-                setIsCreateModalOpen(false);
-                setIsExtractMode(false);
-              }} className={`text-xs px-3 py-1 ${!createName.trim() ? 'bg-slate-700 text-slate-400 border border-slate-600 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-500 text-white'} rounded`}>确认创建</button>
+            <div>
+              <div className="text-xs text-slate-400 mb-1">组件描述（可选）</div>
+              <textarea value={createDesc} onChange={(e) => setCreateDesc(e.target.value)} placeholder="用于说明此组件用途" className="w-full px-2 py-1 text-sm bg-slate-800 border border-slate-700 rounded text-slate-200 min-h-[80px]" />
             </div>
           </div>
-        </div>
+        </Modal>
       )}
       {isParamsModalOpen && componentDraft && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-          <div className="w-[720px] bg-slate-900 border border-slate-800 rounded-lg shadow-xl">
-            <div className="p-4 border-b border-slate-800 flex items-center justify-between">
-              <div className="text-sm font-semibold text-slate-200">组件参数模板</div>
-              <button onClick={() => { setIsParamsModalOpen(false); setComponentDraft(null); }} className="text-slate-400 text-xs">关闭</button>
-            </div>
-            <div className="p-4 grid grid-cols-2 gap-4">
-              <div>
-                <div className="text-xs font-semibold text-slate-400 mb-2">参数列表</div>
-                <div className="space-y-2">
-                  {paramSchema.map((p, i) => (
-                    <div key={i} className="flex items-center gap-2">
-                      <input value={p.key} onChange={(e) => {
-                        const v = e.target.value; const next = [...paramSchema]; next[i] = { ...next[i], key: v }; setParamSchema(next);
-                      }} placeholder="key" className="px-2 py-1 text-xs bg-slate-800 border border-slate-700 rounded text-slate-200 w-28" />
-                      <input value={p.label || ''} onChange={(e) => {
-                        const v = e.target.value; const next = [...paramSchema]; next[i] = { ...next[i], label: v }; setParamSchema(next);
-                      }} placeholder="label" className="px-2 py-1 text-xs bg-slate-800 border border-slate-700 rounded text-slate-200 flex-1" />
-                      <input value={p.defaultValue || ''} onChange={(e) => {
-                        const v = e.target.value; const next = [...paramSchema]; next[i] = { ...next[i], defaultValue: v }; setParamSchema(next);
-                      }} placeholder="default" className="px-2 py-1 text-xs bg-slate-800 border border-slate-700 rounded text-slate-200 w-32" />
-                      <button onClick={() => { const next = [...paramSchema]; next.splice(i,1); setParamSchema(next); }} className="text-[10px] text-red-400 px-2 py-1">移除</button>
-                    </div>
-                  ))}
-                  <button onClick={() => setParamSchema(prev => [...prev, { key: '', label: '', defaultValue: '' }])} className="mt-2 text-xs px-2 py-1 bg-slate-800 border border-slate-700 rounded text-slate-300">新增参数</button>
-                </div>
+        <Modal
+          open={true}
+          title="组件参数模板"
+          width={720}
+          onClose={() => { setIsParamsModalOpen(false); setComponentDraft(null); }}
+          footer={(
+            <>
+              <Button onClick={() => { setIsParamsModalOpen(false); setComponentDraft(null); }}>取消</Button>
+              <Button
+                variant="primary"
+                onClick={() => {
+                  if (!componentDraft) return;
+                  const trimmedKeys = paramSchema.map(p => (p.key || '').trim());
+                  const hasEmpty = trimmedKeys.some(k => !k);
+                  const uniq = new Set(trimmedKeys.filter(k => k));
+                  const hasDup = uniq.size !== trimmedKeys.filter(k => k).length;
+                  if (hasEmpty || hasDup) {
+                    alert('参数 key 不可为空且需唯一');
+                    return;
+                  }
+                  const paramsObject: Record<string, any> = {};
+                  paramSchema.forEach(p => { if (p.key) paramsObject[p.key.trim()] = p.defaultValue || '' });
+                  const applyBinding = (s: Step, binding: { path: string; key: string }): Step => {
+                    const clone = JSON.parse(JSON.stringify(s));
+                    const parts = binding.path.split('.');
+                    let ref: any = clone;
+                    for (let j=0;j<parts.length-1;j++){ const k=parts[j]; ref[k] = ref[k] ?? {}; ref = ref[k]; }
+                    const leaf = parts[parts.length-1];
+                    ref[leaf] = `{{${binding.key}}}`;
+                    return clone as Step;
+                  }
+                  let newSteps = componentDraft.steps.map(s => ({...s}));
+                  fieldBindings.filter(b => b.paramKey).forEach(b => {
+                    newSteps[b.stepIndex] = applyBinding(newSteps[b.stepIndex], { path: b.path, key: b.paramKey.trim() });
+                  });
+                  const newComponent = { id: `comp-${Date.now()}`, name: componentDraft.name, steps: newSteps, paramsSchema: paramSchema };
+                  setUserComponents(prev => [...prev, newComponent]);
+                  const newComponentStep: Step = { id: `step-${Date.now()}`, type: StepType.COMPONENT, action: 'component', intent: `执行组件: ${componentDraft.name}`, componentId: newComponent.id, componentName: newComponent.name, status: 'pending', params: paramsObject };
+                  const firstSelectedIndex = steps.findIndex(step => step.id === selectedStepIds[0]);
+                  const stepsWithoutSelected = steps.filter(step => !selectedStepIds.includes(step.id));
+                  stepsWithoutSelected.splice(firstSelectedIndex, 0, newComponentStep);
+                  setSteps(stepsWithoutSelected);
+                  setSelectedStepIds([]);
+                  setIsParamsModalOpen(false);
+                  setComponentDraft(null);
+                }}
+              >保存并插入</Button>
+            </>
+          )}
+        >
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <div className="text-xs font-semibold text-slate-400 mb-2">参数列表</div>
+              <div className="space-y-2">
+                {paramSchema.map((p, i) => (
+                  <div key={i} className="flex items-center gap-2">
+                    <input value={p.key} onChange={(e) => {
+                      const v = e.target.value; const next = [...paramSchema]; next[i] = { ...next[i], key: v }; setParamSchema(next);
+                    }} placeholder="key" className="px-2 py-1 text-xs bg-slate-800 border border-slate-700 rounded text-slate-200 w-28" />
+                    <input value={p.label || ''} onChange={(e) => {
+                      const v = e.target.value; const next = [...paramSchema]; next[i] = { ...next[i], label: v }; setParamSchema(next);
+                    }} placeholder="label" className="px-2 py-1 text-xs bg-slate-800 border border-slate-700 rounded text-slate-200 flex-1" />
+                    <input value={p.defaultValue || ''} onChange={(e) => {
+                      const v = e.target.value; const next = [...paramSchema]; next[i] = { ...next[i], defaultValue: v }; setParamSchema(next);
+                    }} placeholder="default" className="px-2 py-1 text-xs bg-slate-800 border border-slate-700 rounded text-slate-200 w-32" />
+                    <Button size="sm" variant="danger" onClick={() => { const next = [...paramSchema]; next.splice(i,1); setParamSchema(next); }}>移除</Button>
+                  </div>
+                ))}
+                <Button size="sm" className="mt-2" onClick={() => setParamSchema(prev => [...prev, { key: '', label: '', defaultValue: '' }])}>新增参数</Button>
               </div>
-              <div>
-                <div className="text-xs font-semibold text-slate-400 mb-2">字段绑定</div>
-                <div className="space-y-2 max-h-64 overflow-auto pr-1">
-                  {fieldBindings.map((b, i) => (
-                    <div key={i} className="flex items-center gap-2">
-                      <span className="text-[10px] text-slate-500 w-36">步骤 {b.stepIndex+1} · {b.path}</span>
-                      <select value={b.paramKey} onChange={(e) => {
-                        const v = e.target.value; const next = [...fieldBindings]; next[i] = { ...next[i], paramKey: v }; setFieldBindings(next);
-                      }} className="px-2 py-1 text-xs bg-slate-800 border border-slate-700 rounded text-slate-200 flex-1">
-                        <option value="">不绑定</option>
-                        {paramSchema.map(p => (<option key={p.key} value={p.key}>{p.key}</option>))}
-                      </select>
-                    </div>
-                  ))}
-                </div>
-              </div>
             </div>
-            <div className="p-4 border-t border-slate-800 flex items-center justify-end gap-2">
-              <button onClick={() => { setIsParamsModalOpen(false); setComponentDraft(null); }} className="text-xs px-3 py-1 bg-slate-800 border border-slate-700 rounded text-slate-300">取消</button>
-              <button onClick={() => {
-                if (!componentDraft) return;
-                const trimmedKeys = paramSchema.map(p => (p.key || '').trim());
-                const hasEmpty = trimmedKeys.some(k => !k);
-                const uniq = new Set(trimmedKeys.filter(k => k));
-                const hasDup = uniq.size !== trimmedKeys.filter(k => k).length;
-                if (hasEmpty || hasDup) {
-                  alert('参数 key 不可为空且需唯一');
-                  return;
-                }
-                const paramsObject: Record<string, any> = {};
-                paramSchema.forEach(p => { if (p.key) paramsObject[p.key.trim()] = p.defaultValue || '' });
-                const applyBinding = (s: Step, binding: { path: string; key: string }): Step => {
-                  const clone = JSON.parse(JSON.stringify(s));
-                  const parts = binding.path.split('.');
-                  let ref: any = clone;
-                  for (let j=0;j<parts.length-1;j++){ const k=parts[j]; ref[k] = ref[k] ?? {}; ref = ref[k]; }
-                  const leaf = parts[parts.length-1];
-                  ref[leaf] = `{{${binding.key}}}`;
-                  return clone as Step;
-                }
-                let newSteps = componentDraft.steps.map(s => ({...s}));
-                fieldBindings.filter(b => b.paramKey).forEach(b => {
-                  newSteps[b.stepIndex] = applyBinding(newSteps[b.stepIndex], { path: b.path, key: b.paramKey.trim() });
-                });
-                const newComponent = { id: `comp-${Date.now()}`, name: componentDraft.name, steps: newSteps, paramsSchema: paramSchema };
-                setUserComponents(prev => [...prev, newComponent]);
-                const newComponentStep: Step = { id: `step-${Date.now()}`, type: StepType.COMPONENT, action: 'component', intent: `执行组件: ${componentDraft.name}`, componentId: newComponent.id, componentName: newComponent.name, status: 'pending', params: paramsObject };
-                const firstSelectedIndex = steps.findIndex(step => step.id === selectedStepIds[0]);
-                const stepsWithoutSelected = steps.filter(step => !selectedStepIds.includes(step.id));
-                stepsWithoutSelected.splice(firstSelectedIndex, 0, newComponentStep);
-                setSteps(stepsWithoutSelected);
-                setSelectedStepIds([]);
-                setIsParamsModalOpen(false);
-                setComponentDraft(null);
-              }} className="text-xs px-3 py-1 bg-blue-600 hover:bg-blue-500 text-white rounded">保存并插入</button>
+            <div>
+              <div className="text-xs font-semibold text-slate-400 mb-2">字段绑定</div>
+              <div className="space-y-2 max-h-64 overflow-auto pr-1">
+                {fieldBindings.map((b, i) => (
+                  <div key={i} className="flex items-center gap-2">
+                    <span className="text-[10px] text-slate-500 w-36">步骤 {b.stepIndex+1} · {b.path}</span>
+                    <select value={b.paramKey} onChange={(e) => {
+                      const v = e.target.value; const next = [...fieldBindings]; next[i] = { ...next[i], paramKey: v }; setFieldBindings(next);
+                    }} className="px-2 py-1 text-xs bg-slate-800 border border-slate-700 rounded text-slate-200 flex-1">
+                      <option value="">不绑定</option>
+                      {paramSchema.map(p => (<option key={p.key} value={p.key}>{p.key}</option>))}
+                    </select>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
-        </div>
+        </Modal>
       )}
       
       <ActionMenu
@@ -793,28 +804,17 @@ export const App: React.FC = () => {
                <span>演示模式 (无 API Key)</span>
              </div>
            )}
-           <button 
-             onClick={() => setIsHeadless(h => !h)}
-             className={`flex items-center gap-2 px-3 py-1.5 rounded text-xs font-medium transition-all ${isHeadless ? 'bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700' : 'bg-green-600/20 text-green-400 border border-green-600/50'}`}
-           >
+           <Button onClick={() => setIsHeadless(h => !h)} variant={isHeadless ? 'secondary' : 'warning'}>
              {isHeadless ? '无头：开' : '无头：关'}
-           </button>
-           <button 
-             onClick={handleInspectToggle}
-             className={`
-               flex items-center gap-2 px-3 py-1.5 rounded text-xs font-medium transition-all
-               ${isInspecting 
-                 ? 'bg-blue-500/10 text-blue-400 border border-blue-500/50 animate-pulse' 
-                 : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700'}
-             `}
-           >
+           </Button>
+           <Button onClick={handleInspectToggle} className={isInspecting ? 'border border-blue-500/50 text-blue-400 bg-blue-500/10 animate-pulse' : ''}>
              <Target size={14} />
              {isInspecting ? '停止选择' : '选择元素'}
-           </button>
-           <button className="flex items-center gap-2 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded text-xs font-medium shadow-lg shadow-blue-900/20 transition-colors">
+           </Button>
+           <Button variant="primary" className="shadow-lg shadow-blue-900/20">
              <Download size={14} />
              导出脚本
-           </button>
+           </Button>
         </div>
       </header>
 
@@ -823,23 +823,14 @@ export const App: React.FC = () => {
         
         {/* Left Sidebar: Tabs + Content */}
       <aside className="w-72 shrink-0 flex flex-col z-10 border-r border-slate-800 bg-slate-950">
-           {/* Sidebar Tabs */}
-           <div className="flex border-b border-slate-800 bg-slate-900">
-              <button 
-                onClick={() => setActiveSidebarTab('steps')}
-                className={`flex-1 flex items-center justify-center gap-2 py-3 text-xs font-medium transition-colors border-b-2 ${activeSidebarTab === 'steps' ? 'border-blue-500 text-blue-400 bg-slate-800/50' : 'border-transparent text-slate-500 hover:text-slate-300'}`}
-              >
-                <List size={14} />
-                当前用例
-              </button>
-              <button 
-                onClick={() => setActiveSidebarTab('library')}
-                className={`flex-1 flex items-center justify-center gap-2 py-3 text-xs font-medium transition-colors border-b-2 ${activeSidebarTab === 'library' ? 'border-blue-500 text-blue-400 bg-slate-800/50' : 'border-transparent text-slate-500 hover:text-slate-300'}`}
-              >
-                <Package size={14} />
-                组件库
-              </button>
-           </div>
+           <Tabs
+             items={[
+               { key: 'steps', label: '当前用例', icon: <List size={14} /> },
+               { key: 'library', label: '组件库', icon: <Package size={14} /> }
+             ]}
+             activeKey={activeSidebarTab}
+             onChange={(k) => setActiveSidebarTab(k as any)}
+           />
 
            <div className="flex-1 overflow-hidden relative">
              {activeSidebarTab === 'steps' && (
@@ -902,27 +893,18 @@ export const App: React.FC = () => {
         <section className="flex-1 flex flex-col min-w-0 bg-slate-950 relative border-r border-slate-800">
           {/* Toolbar */}
           <div className="h-10 border-b border-slate-800 flex items-center px-4 gap-4 bg-slate-900/30">
-            <button 
-              onClick={() => setActiveMainTab('live')}
-              className={`text-xs font-medium flex items-center gap-2 h-full border-b-2 transition-colors ${activeMainTab === 'live' ? 'border-blue-500 text-blue-400' : 'border-transparent text-slate-500 hover:text-slate-300'}`}
-            >
-              <Layout size={14} />
-              实时预览
-            </button>
-            <button 
-              onClick={() => setActiveMainTab('flow')}
-              className={`text-xs font-medium flex items-center gap-2 h-full border-b-2 transition-colors ${activeMainTab === 'flow' ? 'border-blue-500 text-blue-400' : 'border-transparent text-slate-500 hover:text-slate-300'}`}
-            >
-              <Settings size={14} />
-              流程图谱
-            </button>
+            <Tabs
+              items={[
+                { key: 'live', label: '实时预览', icon: <Layout size={14} /> },
+                { key: 'flow', label: '流程图谱', icon: <Settings size={14} /> }
+              ]}
+              activeKey={activeMainTab}
+              onChange={(k) => setActiveMainTab(k as any)}
+            />
             <div className="ml-auto flex items-center gap-2">
-              <button 
-                onClick={handleToggleStreaming}
-                className={`text-xs font-medium px-2 py-1 rounded border ${isStreaming ? 'border-green-600 text-green-400 bg-green-500/10' : 'border-slate-700 text-slate-300 bg-slate-800 hover:bg-slate-700'}`}
-              >
+              <Button onClick={handleToggleStreaming} className={isStreaming ? 'border-green-600 text-green-400 bg-green-500/10' : ''}>
                 {isStreaming ? '流式预览：开' : '流式预览：关'}
-              </button>
+              </Button>
               <select
                 value={inspectTrigger}
                 onChange={(e) => setInspectTrigger(e.target.value as any)}

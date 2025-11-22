@@ -50,6 +50,9 @@ export const BrowserPreview: React.FC<BrowserPreviewProps> = ({ url, onUrlChange
   const [hasFrame, setHasFrame] = useState(false);
   // 控制模式：只有在显式开启时，前端才会把点击/按键转发到远端 agent
   const [controlEnabled, setControlEnabled] = useState(false);
+  const [showOthers, setShowOthers] = useState(false);
+  const currentPage = (sessionPages && sessionPages.length) ? (sessionPages.find(p => p.id === activePageId) || sessionPages[0]) : undefined
+  const otherPages = (sessionPages && currentPage) ? sessionPages.filter(p => p.id !== currentPage.id) : []
 
   // Simulate loading the remote browser session
   useEffect(() => {
@@ -264,7 +267,7 @@ export const BrowserPreview: React.FC<BrowserPreviewProps> = ({ url, onUrlChange
   return (
     <div className="flex flex-col h-full bg-slate-900 relative">
       {/* Browser Toolbar */}
-      <div className="h-10 bg-slate-900 border-b border-slate-800 flex items-center px-3 gap-3 shrink-0 z-10">
+      <div className="h-10 bg-slate-900 border-b border-slate-800 flex items-center px-3 gap-3 shrink-0 z-10 relative">
         <div className="flex items-center gap-2 text-slate-400">
             <ArrowLeft size={16} className="text-slate-600" />
             <ArrowRight size={16} className="text-slate-600" />
@@ -296,28 +299,32 @@ export const BrowserPreview: React.FC<BrowserPreviewProps> = ({ url, onUrlChange
              />
         </form>
         <div className="ml-auto flex items-center gap-2">
-          {sessionPages.length > 0 && (
-            <div className="flex items-center gap-1 border-l border-slate-800 pl-2">
-              {sessionPages.map(p => (
-                <button
-                  key={p.id}
-                  onClick={() => onActivatePage && onActivatePage(p.id)}
-                  className={`px-2 py-0.5 text-[10px] rounded ${activePageId === p.id ? 'bg-blue-800 text-blue-200' : 'bg-slate-800 text-slate-300'} border border-slate-700`}
-                >{p.title || p.url}</button>
-              ))}
-            </div>
-          )}
-        </div>
-        <div className="ml-auto flex items-center gap-2">
-          {sessionPages.length > 0 && (
-            <div className="flex items-center gap-1 border-l border-slate-800 pl-2">
-              {sessionPages.map(p => (
-                <button
-                  key={p.id}
-                  onClick={() => onActivatePage && onActivatePage(p.id)}
-                  className={`px-2 py-0.5 text-[10px] rounded ${activePageId === p.id ? 'bg-blue-800 text-blue-200' : 'bg-slate-800 text-slate-300'} border border-slate-700`}
-                >{p.title || p.url}</button>
-              ))}
+          {sessionPages.length > 0 && currentPage && (
+            <div className="flex items-center gap-2 border-l border-slate-800 pl-2">
+              <button
+                key={currentPage.id}
+                onClick={() => onActivatePage && onActivatePage(currentPage.id)}
+                className={`px-3 py-0.5 text-[10px] rounded max-w-[240px] truncate ${activePageId === currentPage.id ? 'bg-blue-800 text-blue-200' : 'bg-slate-800 text-slate-300'} border border-slate-700`}
+              >{currentPage.title || currentPage.url}</button>
+              {otherPages.length > 0 && (
+                <div className="relative">
+                  <button
+                    onClick={() => setShowOthers(v => !v)}
+                    className="px-2 py-0.5 text-[10px] rounded bg-slate-800 text-slate-300 border border-slate-700"
+                  >{`其他 ${otherPages.length}`}</button>
+                  {showOthers && (
+                    <div className="absolute right-0 mt-1 bg-slate-900 border border-slate-800 rounded shadow-lg p-1 w-64 max-h-48 overflow-auto z-50">
+                      {otherPages.map(p => (
+                        <button
+                          key={p.id}
+                          onClick={() => { onActivatePage && onActivatePage(p.id); setShowOthers(false); }}
+                          className="block w-full text-left px-2 py-1 text-[10px] rounded hover:bg-slate-800 text-slate-300"
+                        >{p.title || p.url}</button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
         </div>
