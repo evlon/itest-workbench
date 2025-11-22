@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { X, Save, Link, Type, MousePointer2, CheckCircle } from 'lucide-react';
+import { X, Save, Link, Type, MousePointer2, CheckCircle, Hourglass } from 'lucide-react';
 import { Step } from '../types';
 
 interface EditStepModalProps {
@@ -73,6 +73,18 @@ export const EditStepModal: React.FC<EditStepModalProps> = ({ isOpen, step, onCl
               className="w-full bg-slate-950 border border-slate-700 rounded px-3 py-2 text-sm text-slate-200 focus:border-blue-500 focus:outline-none"
               placeholder="输入文本..."
             />
+            <div className="flex items-center gap-2">
+              <label className="text-[10px] text-slate-500">类型</label>
+              <select
+                value={params.valueType || 'string'}
+                onChange={(e) => setParams({ ...params, valueType: e.target.value })}
+                className="bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-slate-200"
+              >
+                <option value="string">string</option>
+                <option value="number">number</option>
+                <option value="boolean">boolean</option>
+              </select>
+            </div>
           </div>
         );
       case 'wait':
@@ -97,6 +109,49 @@ export const EditStepModal: React.FC<EditStepModalProps> = ({ isOpen, step, onCl
         return null;
     }
   };
+
+  const renderWaitConfig = () => {
+    return (
+      <div className="space-y-2 pt-2 border-t border-slate-800/50">
+        <label className="text-xs text-slate-500 uppercase font-bold flex items-center gap-2">
+          <Hourglass size={12} /> 等待策略 (Wait Strategy)
+        </label>
+        <div className="flex items-center gap-3">
+          <select
+            value={params.waitMode || 'none'}
+            onChange={(e) => setParams({ ...params, waitMode: e.target.value })}
+            className="bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-slate-200"
+          >
+            <option value="none">不等待</option>
+            <option value="explicit">显式等待</option>
+            <option value="smart">智能等待</option>
+          </select>
+          {(params.waitMode === 'explicit') && (
+            <input
+              type="number"
+              value={params.waitMs || 500}
+              onChange={(e) => setParams({ ...params, waitMs: Number(e.target.value) })}
+              className="w-28 bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-slate-200"
+              placeholder="毫秒"
+            />
+          )}
+          <input
+            type="number"
+            value={params.timeoutMs || 3000}
+            onChange={(e) => setParams({ ...params, timeoutMs: Number(e.target.value) })}
+            className="w-28 bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-slate-200"
+            placeholder="断言超时(ms)"
+          />
+          {(step.intent.includes('可见')) && (
+            <label className="flex items-center gap-1 text-xs text-slate-300">
+              <input type="checkbox" checked={!!params.visible} onChange={(e) => setParams({ ...params, visible: e.target.checked })} />
+              断言可见
+            </label>
+          )}
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm animate-in fade-in duration-200">
@@ -127,6 +182,9 @@ export const EditStepModal: React.FC<EditStepModalProps> = ({ isOpen, step, onCl
 
           {/* Dynamic Params */}
           {renderParamInputs()}
+
+          {/* Wait Config */}
+          {renderWaitConfig()}
 
           {/* Selector (Advanced) */}
           <div className="space-y-2 pt-2 border-t border-slate-800/50">

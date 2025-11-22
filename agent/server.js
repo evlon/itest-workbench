@@ -232,6 +232,59 @@ const server = http.createServer(async (req, res) => {
     return sendJson(res, 200, { status: 'processing' })
   }
 
+  if (req.method === 'POST' && pathname === '/action/assert') {
+    const body = await parseBody(req)
+    const session = sessions.get(body.sessionId)
+    if (!session) return sendJson(res, 400, { error: 'invalid_session' })
+    const page = session.page
+    const selector = String(body.selector || '')
+    const type = String(body.type || 'visible')
+    const expectedText = typeof body.text === 'string' ? body.text : ''
+    const timeoutMs = typeof body.timeoutMs === 'number' ? body.timeoutMs : 3000
+    let ok = false
+    try {
+      if (type === 'visible') {
+        await page.locator(selector).first().waitFor({ state: 'visible', timeout: timeoutMs })
+        ok = await page.locator(selector).first().isVisible()
+      } else if (type === 'text') {
+        await page.locator(selector).first().waitFor({ state: 'attached', timeout: timeoutMs })
+        const txt = await page.locator(selector).first().innerText()
+        ok = typeof txt === 'string' && txt.includes(expectedText)
+      }
+    } catch {}
+    let shot = ''
+    try {
+      const buf = await page.screenshot({ fullPage: true, type: 'jpeg', quality: 60 })
+      const hash = createHash('md5').update(buf).digest('hex')
+      if (hash !== session.lastHash) {
+        session.lastHash = hash
+        shot = buf.toString('base64')
+        session.lastScreenshot = shot
+        for (const client of session.clients) writeEvent(client, 'screenshot', { base64: shot, timestamp: Date.now() })
+        for (const ws of session.wsClients) { if (ws.readyState === 1) { try { ws.send(buf) } catch {} } }
+      }
+    } catch {}
+    for (const client of session.clients) writeEvent(client, 'action-complete', { status: ok ? 'success' : 'failed', result: { type, selector, expectedText } })
+    return sendJson(res, 200, { ok })
+  }
+
+  if (req.method === 'POST' && pathname === '/action/wait') {
+    const body = await parseBody(req)
+    const session = sessions.get(body.sessionId)
+    if (!session) return sendJson(res, 400, { error: 'invalid_session' })
+    const ms = typeof body.ms === 'number' ? Math.max(0, body.ms) : 500
+    await new Promise(r => setTimeout(r, ms))
+    let shot = ''
+    try {
+      const buf = await session.page.screenshot({ fullPage: true, type: 'jpeg', quality: 60 })
+      shot = buf.toString('base64')
+      session.lastScreenshot = shot
+      for (const client of session.clients) writeEvent(client, 'screenshot', { base64: shot, timestamp: Date.now() })
+    } catch {}
+    for (const client of session.clients) writeEvent(client, 'action-complete', { status: 'success', result: { waitedMs: ms } })
+    return sendJson(res, 200, { status: 'ok' })
+  }
+
   if (req.method === 'POST' && pathname === '/action/keypress') {
     const body = await parseBody(req)
     const session = sessions.get(body.sessionId)

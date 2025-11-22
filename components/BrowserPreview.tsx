@@ -14,6 +14,8 @@ interface BrowserPreviewProps {
   onPlaybackKeys?: () => void;
   onKeyEvent?: (evt: { type: 'down' | 'up'; key: string; ctrl: boolean; alt: boolean; shift: boolean; meta: boolean }) => void;
   inspectTrigger?: 'ctrlOrMeta' | 'alt' | 'shift';
+  keyCount?: number;
+  textCount?: number;
 }
 
 /**
@@ -25,7 +27,7 @@ interface BrowserPreviewProps {
  * which would then return the results. For this simulation, we are faking
  * these interactions and the returned data.
  */
-export const BrowserPreview: React.FC<BrowserPreviewProps> = ({ url, onUrlChange, onElementSelect, isInspecting, screenshotBase64, sessionId, isStreaming, isKeyRecording, onToggleKeyRecording, onPlaybackKeys, onKeyEvent, inspectTrigger = 'ctrlOrMeta' }) => {
+export const BrowserPreview: React.FC<BrowserPreviewProps> = ({ url, onUrlChange, onElementSelect, isInspecting, screenshotBase64, sessionId, isStreaming, isKeyRecording, onToggleKeyRecording, onPlaybackKeys, onKeyEvent, inspectTrigger = 'ctrlOrMeta', keyCount = 0, textCount = 0 }) => {
   const [inputUrl, setInputUrl] = useState(url);
   const [isLoading, setIsLoading] = useState(true);
   const viewportRef = useRef<HTMLDivElement>(null);
@@ -303,7 +305,7 @@ export const BrowserPreview: React.FC<BrowserPreviewProps> = ({ url, onUrlChange
                   </span>
               )}
               {isKeyRecording && (
-                <span className="flex items-center gap-1 text-green-500">键盘录制已开启</span>
+                <span className="flex items-center gap-1 text-green-500">录制中 · 按键 {keyCount} · 文本 {textCount}</span>
               )}
           </div>
           <span className="text-slate-600">模拟远程浏览器</span>

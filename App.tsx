@@ -9,7 +9,7 @@ import { EditStepModal } from './components/EditStepModal';
 import { ActionMenu } from './components/ActionMenu';
 import { generateTestScript, parseIntentToStepRefined } from './services/aiService';
 import { refineStepTarget, getBestStaticSelectorForStep } from './services/selectorRefiner';
-import { startSession, stopSession, subscribeEvents, exec as agentExec, act as agentAct, observe as agentObserve, startStream as agentStartStream, stopStream as agentStopStream, keypress as agentKeypress, focused as agentFocused } from './services/agentClient';
+import { startSession, stopSession, subscribeEvents, exec as agentExec, act as agentAct, observe as agentObserve, startStream as agentStartStream, stopStream as agentStopStream, keypress as agentKeypress, focused as agentFocused, assertRemote, waitRemote } from './services/agentClient';
 import { Step, ScriptMode, StepType, StepTarget } from './types';
 import { Play, Square, Download, Sparkles, Zap, Layout, Code, Bot, Settings, AlertTriangle, List, Package, Target } from 'lucide-react';
 
@@ -283,11 +283,38 @@ export const App: React.FC = () => {
         return obj
       }
       const runOne = async (s: Step) => {
+        if (sessionId && s.params && typeof s.params['waitMs'] === 'number' && s.params['waitMs'] > 0) {
+          await waitRemote(sessionId, Number(s.params['waitMs']))
+        }
+        if (s.action === 'input') {
+          const text = (s.params && typeof s.params['value'] === 'string') ? String(s.params['value']) : ''
+          if (text) {
+            await agentKeypress(sessionId, { type: 'type', text })
+          }
+          if (s.params && s.params['waitMode'] === 'smart') {
+            await waitRemote(sessionId, 500)
+          }
+          return
+        }
+        if (s.type === StepType.VERIFICATION) {
+          const sel = getBestStaticSelectorForStep(s)
+          if (s.intent.includes('可见') || s.params?.visible === true) {
+            await assertRemote(sessionId, sel, 'visible', undefined, Number(s.params?.timeoutMs || 3000))
+            return
+          }
+          if (s.intent.includes('文本') || typeof s.params?.text === 'string') {
+            await assertRemote(sessionId, sel, 'text', String(s.params?.text || ''), Number(s.params?.timeoutMs || 3000))
+            return
+          }
+        }
         if (mode === ScriptMode.STATIC) {
           const sel = getBestStaticSelectorForStep(s)
           await agentExec(sessionId, sel, s.action === 'click' ? 'click' : 'run')
         } else {
           await agentAct(sessionId, s.intent)
+        }
+        if (s.params && s.params['waitMode'] === 'smart') {
+          await waitRemote(sessionId, 500)
         }
       }
       if (step.type === StepType.COMPONENT && step.componentId) {
@@ -406,6 +433,10 @@ export const App: React.FC = () => {
       setInputBuffer(buf => buf + evt.key);
       return;
     }
+    if (evt.type === 'down' && evt.key === 'Enter' && inputBuffer) {
+      flushInputBuffer();
+      return;
+    }
     if (evt.type === 'down') {
       const newStep: Step = {
         id: Math.random().toString(36).substr(2, 9),
@@ -420,6 +451,12 @@ export const App: React.FC = () => {
       setActiveStepId(newStep.id);
     }
   };
+
+  useEffect(() => {
+    if (!isKeyRecording || !inputBuffer) return;
+    const timer = setTimeout(() => { flushInputBuffer(); }, 600);
+    return () => clearTimeout(timer);
+  }, [inputBuffer, isKeyRecording]);
 
   const flushInputBuffer = async () => {
     if (!sessionId || !inputBuffer) return;
@@ -847,8 +884,10 @@ export const App: React.FC = () => {
                  isKeyRecording={isKeyRecording}
                  onToggleKeyRecording={handleToggleKeyRecording}
                  onPlaybackKeys={handlePlaybackKeys}
-                 onKeyEvent={handleKeyEvent}
+                onKeyEvent={handleKeyEvent}
                  inspectTrigger={inspectTrigger}
+                 keyCount={keyLog.filter(k => k.type==='down').length}
+                 textCount={inputBuffer.length}
               />
              ) : (
                <FlowGraph steps={steps} />

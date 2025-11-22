@@ -59,6 +59,24 @@ export const focused = async (sessionId: string) => {
   return res.json()
 }
 
+export const assertRemote = async (sessionId: string, selector: string, type: 'visible' | 'text', text?: string, timeoutMs?: number) => {
+  const res = await fetch(`${BASE_URL}/action/assert`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sessionId, selector, type, text, timeoutMs })
+  })
+  return res.json()
+}
+
+export const waitRemote = async (sessionId: string, ms: number) => {
+  const res = await fetch(`${BASE_URL}/action/wait`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sessionId, ms })
+  })
+  return res.json()
+}
+
 export const startStream = async (sessionId: string, intervalMs?: number) => {
   const res = await fetch(`${BASE_URL}/stream/start`, {
     method: 'POST',
