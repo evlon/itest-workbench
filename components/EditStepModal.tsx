@@ -26,6 +26,12 @@ export const EditStepModal: React.FC<EditStepModalProps> = ({ isOpen, step, onCl
   if (!isOpen || !step) return null;
 
   const handleSave = () => {
+    const nextParams = { ...params }
+    if (step.action === 'input') {
+      const t = String(nextParams.valueType || 'string')
+      if (t === 'number') nextParams.value = Number(nextParams.value || 0)
+      if (t === 'boolean') nextParams.value = !!nextParams.value && String(nextParams.value).toLowerCase() !== 'false'
+    }
     const updatedStep: Step = {
       ...step,
       intent,
@@ -37,7 +43,7 @@ export const EditStepModal: React.FC<EditStepModalProps> = ({ isOpen, step, onCl
           precise: selector
         }
       },
-      params
+      params: nextParams
     };
     onSave(updatedStep);
     onClose();

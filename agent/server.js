@@ -253,6 +253,7 @@ const server = http.createServer(async (req, res) => {
       }
     } catch {}
     let shot = ''
+    let html = ''
     try {
       const buf = await page.screenshot({ fullPage: true, type: 'jpeg', quality: 60 })
       const hash = createHash('md5').update(buf).digest('hex')
@@ -264,8 +265,17 @@ const server = http.createServer(async (req, res) => {
         for (const ws of session.wsClients) { if (ws.readyState === 1) { try { ws.send(buf) } catch {} } }
       }
     } catch {}
-    for (const client of session.clients) writeEvent(client, 'action-complete', { status: ok ? 'success' : 'failed', result: { type, selector, expectedText } })
-    return sendJson(res, 200, { ok })
+    try {
+      html = await page.evaluate((sel) => {
+        const el = sel ? document.querySelector(sel) : document.body
+        if (!el) return ''
+        const wrap = document.createElement('div')
+        wrap.appendChild(el.cloneNode(true))
+        return wrap.innerHTML.slice(0, 5000)
+      }, selector)
+    } catch {}
+    for (const client of session.clients) writeEvent(client, 'action-complete', { status: ok ? 'success' : 'failed', result: { type, selector, expectedText, snapshot: shot ? shot.slice(0, 120) : '', html_snippet: html } })
+    return sendJson(res, 200, { ok, html })
   }
 
   if (req.method === 'POST' && pathname === '/action/wait') {
@@ -283,6 +293,51 @@ const server = http.createServer(async (req, res) => {
     } catch {}
     for (const client of session.clients) writeEvent(client, 'action-complete', { status: 'success', result: { waitedMs: ms } })
     return sendJson(res, 200, { status: 'ok' })
+  }
+
+  if (req.method === 'POST' && pathname === '/action/smartwait') {
+    const body = await parseBody(req)
+    const session = sessions.get(body.sessionId)
+    if (!session) return sendJson(res, 400, { error: 'invalid_session' })
+    const page = session.page
+    const selector = typeof body.selector === 'string' ? body.selector : ''
+    const timeoutMs = typeof body.timeoutMs === 'number' ? body.timeoutMs : 3000
+    const wantNetwork = body.networkIdle !== false
+    const wantStable = body.stability !== false
+    let ok = true
+    try {
+      if (wantNetwork) {
+        try { await page.waitForLoadState('networkidle', { timeout: timeoutMs }) } catch {}
+      }
+      if (wantStable && selector) {
+        const stable = await (async () => {
+          const samples = []
+          for (let i = 0; i < 3; i++) {
+            const rect = await page.evaluate((sel) => {
+              const el = document.querySelector(sel)
+              if (!el) return null
+              const r = el.getBoundingClientRect()
+              return { x: r.left, y: r.top, w: r.width, h: r.height }
+            }, selector)
+            samples.push(rect)
+            await new Promise(r => setTimeout(r, 200))
+          }
+          if (!samples[0] || !samples[1] || !samples[2]) return false
+          const diff = (a, b) => Math.abs(a.x - b.x) + Math.abs(a.y - b.y) + Math.abs(a.w - b.w) + Math.abs(a.h - b.h)
+          return diff(samples[0], samples[1]) < 2 && diff(samples[1], samples[2]) < 2
+        })()
+        ok = ok && stable
+      }
+    } catch {}
+    let shot = ''
+    try {
+      const buf = await page.screenshot({ fullPage: true, type: 'jpeg', quality: 60 })
+      shot = buf.toString('base64')
+      session.lastScreenshot = shot
+      for (const client of session.clients) writeEvent(client, 'screenshot', { base64: shot, timestamp: Date.now() })
+    } catch {}
+    for (const client of session.clients) writeEvent(client, 'action-complete', { status: ok ? 'success' : 'failed', result: { selector, timeoutMs } })
+    return sendJson(res, 200, { ok })
   }
 
   if (req.method === 'POST' && pathname === '/action/keypress') {

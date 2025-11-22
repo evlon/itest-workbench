@@ -9,7 +9,7 @@ import { EditStepModal } from './components/EditStepModal';
 import { ActionMenu } from './components/ActionMenu';
 import { generateTestScript, parseIntentToStepRefined } from './services/aiService';
 import { refineStepTarget, getBestStaticSelectorForStep } from './services/selectorRefiner';
-import { startSession, stopSession, subscribeEvents, exec as agentExec, act as agentAct, observe as agentObserve, startStream as agentStartStream, stopStream as agentStopStream, keypress as agentKeypress, focused as agentFocused, assertRemote, waitRemote } from './services/agentClient';
+import { startSession, stopSession, subscribeEvents, exec as agentExec, act as agentAct, observe as agentObserve, startStream as agentStartStream, stopStream as agentStopStream, keypress as agentKeypress, focused as agentFocused, assertRemote, waitRemote, smartWait } from './services/agentClient';
 import { Step, ScriptMode, StepType, StepTarget } from './types';
 import { Play, Square, Download, Sparkles, Zap, Layout, Code, Bot, Settings, AlertTriangle, List, Package, Target } from 'lucide-react';
 
@@ -292,7 +292,8 @@ export const App: React.FC = () => {
             await agentKeypress(sessionId, { type: 'type', text })
           }
           if (s.params && s.params['waitMode'] === 'smart') {
-            await waitRemote(sessionId, 500)
+            const sel = getBestStaticSelectorForStep(s)
+            await smartWait(sessionId, { selector: sel, timeoutMs: Number(s.params?.timeoutMs || 3000), networkIdle: true, stability: true })
           }
           return
         }
@@ -314,7 +315,8 @@ export const App: React.FC = () => {
           await agentAct(sessionId, s.intent)
         }
         if (s.params && s.params['waitMode'] === 'smart') {
-          await waitRemote(sessionId, 500)
+          const sel = getBestStaticSelectorForStep(s)
+          await smartWait(sessionId, { selector: sel, timeoutMs: Number(s.params?.timeoutMs || 3000), networkIdle: true, stability: true })
         }
       }
       if (step.type === StepType.COMPONENT && step.componentId) {
