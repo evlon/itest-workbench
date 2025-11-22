@@ -591,6 +591,13 @@ server.on('upgrade', (req, socket, head) => {
     }
     const session = sessions.get(sessionId)
     session.wsClients.add(ws)
+    // Immediately send the last screenshot (if available) to the newly connected WS client
+    try {
+      if (session.lastScreenshot) {
+        const buf = Buffer.from(session.lastScreenshot, 'base64')
+        try { if (ws.readyState === 1) ws.send(buf) } catch {}
+      }
+    } catch {}
     ws.on('close', () => {
       session.wsClients.delete(ws)
     })

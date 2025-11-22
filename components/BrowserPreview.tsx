@@ -40,6 +40,10 @@ export const BrowserPreview: React.FC<BrowserPreviewProps> = ({ url, onUrlChange
   const [overlay, setOverlay] = useState<{ x: number, y: number, width: number, height: number } | null>(null);
   const [frameSize, setFrameSize] = useState<{ w: number, h: number } | null>(null);
   const [failOverlay, setFailOverlay] = useState<{ x: number, y: number, width: number, height: number } | null>(null);
+  const [devicePixelRatio, setDevicePixelRatio] = useState<number>(1);
+  const [hasFrame, setHasFrame] = useState(false);
+  // 控制模式：只有在显式开启时，前端才会把点击/按键转发到远端 agent
+  const [controlEnabled, setControlEnabled] = useState(false);
 
   // Simulate loading the remote browser session
   useEffect(() => {
@@ -65,8 +69,15 @@ export const BrowserPreview: React.FC<BrowserPreviewProps> = ({ url, onUrlChange
       const w = viewport.clientWidth
       const h = viewport.clientHeight
       if (w > 0 && h > 0) {
-        canvas.width = w
-        canvas.height = h
+        // Set CSS size to match layout, and set backing store size according to devicePixelRatio
+        canvas.style.width = `${w}px`
+        canvas.style.height = `${h}px`
+        const backingW = Math.max(1, Math.floor(w * (devicePixelRatio || 1)))
+        const backingH = Math.max(1, Math.floor(h * (devicePixelRatio || 1)))
+        if (canvas.width !== backingW || canvas.height !== backingH) {
+          canvas.width = backingW
+          canvas.height = backingH
+        }
       }
     }
     resize()
@@ -75,7 +86,7 @@ export const BrowserPreview: React.FC<BrowserPreviewProps> = ({ url, onUrlChange
 
     if (sessionId && isStreaming) {
       fetch(metaUrl).then(r => r.json()).then(m => {
-        // optional: could use m.devicePixelRatio/m.viewport for extra mapping logic later
+        try { setDevicePixelRatio(m.devicePixelRatio || 1) } catch {}
       }).catch(() => {})
       try {
         const ws = new WebSocket(wsUrl)
@@ -90,9 +101,16 @@ export const BrowserPreview: React.FC<BrowserPreviewProps> = ({ url, onUrlChange
             const bmp = await createImageBitmap(blob)
             const ctx = canvas.getContext('2d')
             if (ctx) {
+              // Clear and draw into backing store (canvas.width/height are in device pixels)
               ctx.clearRect(0, 0, canvas.width, canvas.height)
-              ctx.drawImage(bmp, 0, 0, canvas.width, canvas.height)
+              try {
+                ctx.drawImage(bmp, 0, 0, canvas.width, canvas.height)
+              } catch (e) {
+                // fallback: draw into CSS size space
+                ctx.drawImage(bmp, 0, 0, Math.max(1, canvas.width), Math.max(1, canvas.height))
+              }
               setFrameSize({ w: bmp.width, h: bmp.height })
+              setHasFrame(true)
               setIsLoading(false)
             }
           } catch {}
@@ -109,11 +127,12 @@ export const BrowserPreview: React.FC<BrowserPreviewProps> = ({ url, onUrlChange
         wsRef.current = null
       }
     }
-  }, [sessionId, isStreaming])
+  }, [sessionId, isStreaming, devicePixelRatio])
 
   useEffect(() => {
     const onDown = (e: KeyboardEvent) => {
-      if (!sessionId || !isKeyRecording) return
+      // 仅在会话存在、正在录制且控制模式开启时才转发按键到远端
+      if (!sessionId || !isKeyRecording || !controlEnabled) return
       const payload = { type: 'down' as const, key: e.key, ctrl: !!e.ctrlKey, alt: !!e.altKey, shift: !!e.shiftKey, meta: !!e.metaKey }
       onKeyEvent?.(payload)
       fetch(`${(import.meta as any).env?.VITE_AGENT_URL || 'http://localhost:3000'}/action/keypress`, {
@@ -123,7 +142,7 @@ export const BrowserPreview: React.FC<BrowserPreviewProps> = ({ url, onUrlChange
       }).catch(() => {})
     }
     const onUp = (e: KeyboardEvent) => {
-      if (!sessionId || !isKeyRecording) return
+      if (!sessionId || !isKeyRecording || !controlEnabled) return
       const payload = { type: 'up' as const, key: e.key, ctrl: !!e.ctrlKey, alt: !!e.altKey, shift: !!e.shiftKey, meta: !!e.metaKey }
       onKeyEvent?.(payload)
     }
@@ -135,7 +154,7 @@ export const BrowserPreview: React.FC<BrowserPreviewProps> = ({ url, onUrlChange
       window.removeEventListener('keydown', onDown)
       window.removeEventListener('keyup', onUp)
     }
-  }, [isKeyRecording, sessionId])
+  }, [isKeyRecording, sessionId, controlEnabled])
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -186,13 +205,17 @@ export const BrowserPreview: React.FC<BrowserPreviewProps> = ({ url, onUrlChange
           } else if (isInspecting && !triggerHit) {
             onElementSelect({ target: { description: hit.description, selectors: hit.selectors } })
           } else {
+            // 非检查模式：只有在控制模式开启时才把点击转发为远端 click，默认不改变远端页面
             const precise = hit.selectors?.precise || ''
-            if (precise) {
+            if (precise && controlEnabled) {
               fetch(`${(import.meta as any).env?.VITE_AGENT_URL || 'http://localhost:3000'}/action/exec`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ sessionId, selector: precise, method: 'click' })
               }).catch(() => {})
+            } else if (precise && !controlEnabled) {
+              // 可选：在未开启控制模式时提示（这里仅在控制台记录）
+              try { console.log('[preview] control disabled - click not forwarded', precise) } catch {}
             }
           }
         }
@@ -248,6 +271,13 @@ export const BrowserPreview: React.FC<BrowserPreviewProps> = ({ url, onUrlChange
           <button onClick={onPlaybackKeys} className="text-xs px-2 py-1 rounded border bg-slate-800 text-slate-300 border-slate-700">
             <span className="inline-flex items-center gap-1"><Play size={12} />播放录制</span>
           </button>
+          <button
+            onClick={() => setControlEnabled(!controlEnabled)}
+            title={controlEnabled ? '控制模式已开启 — 预览上的点击/按键会发送到远端' : '控制模式已关闭 — 仅高亮/探测，不会操作远端页面'}
+            className={`text-xs px-2 py-1 rounded border ml-1 ${controlEnabled ? 'bg-red-600 text-white border-red-500' : 'bg-slate-800 text-slate-300 border-slate-700'}`}
+          >
+            <span className="inline-flex items-center gap-1"><MousePointer2 size={12} />{controlEnabled ? '控制已开' : '控制模式'}</span>
+          </button>
         </div>
         
         <form onSubmit={handleUrlSubmit} className="flex-1 flex items-center bg-slate-950 border border-slate-700 rounded-full px-3 py-1.5 text-xs shadow-sm focus-within:border-blue-500 transition-colors">
@@ -268,7 +298,7 @@ export const BrowserPreview: React.FC<BrowserPreviewProps> = ({ url, onUrlChange
         onClick={handleViewportClick}
         onMouseMove={handleViewportMove}
       >
-        {isLoading ? (
+        {isLoading && !hasFrame ? (
              <div className="absolute inset-0 flex items-center justify-center bg-slate-900 z-50">
                  <div className="flex flex-col items-center gap-4">
                      <div className="relative">

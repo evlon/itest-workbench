@@ -73,6 +73,8 @@ export const App: React.FC = () => {
   }, []);
 
   useEffect(() => {
+    // Start a session once on mount or when headless mode changes.
+    // Do NOT recreate/stop the session when `url` changes — navigation is handled by `handleUrlChange`.
     let createdSession: string | null = null;
     const init = async () => {
       const res = await startSession(url, isHeadless);
@@ -87,7 +89,7 @@ export const App: React.FC = () => {
         createdSession = null;
       }
     };
-  }, [isHeadless, url]);
+  }, [isHeadless]);
 
   useEffect(() => {
     if (!sessionId) return;
