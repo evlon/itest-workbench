@@ -20,6 +20,12 @@ interface BrowserPreviewProps {
   onClearFailure?: () => void;
   onShowFailure?: () => void;
   failureRect?: { x: number; y: number; w: number; h: number } | null;
+  sessionPages?: { id: string; url: string; title?: string }[];
+  activePageId?: string;
+  onActivatePage?: (pageId: string) => void;
+  newPageNotification?: { pageId: string; title?: string } | null;
+  onDismissNotification?: () => void;
+  onClosePage?: (pageId: string) => void;
 }
 
 /**
@@ -31,7 +37,7 @@ interface BrowserPreviewProps {
  * which would then return the results. For this simulation, we are faking
  * these interactions and the returned data.
  */
-export const BrowserPreview: React.FC<BrowserPreviewProps> = ({ url, onUrlChange, onElementSelect, isInspecting, screenshotBase64, sessionId, isStreaming, isKeyRecording, onToggleKeyRecording, onPlaybackKeys, onKeyEvent, inspectTrigger = 'ctrlOrMeta', keyCount = 0, textCount = 0, failureInfo, onClearFailure, onShowFailure, failureRect }) => {
+export const BrowserPreview: React.FC<BrowserPreviewProps> = ({ url, onUrlChange, onElementSelect, isInspecting, screenshotBase64, sessionId, isStreaming, isKeyRecording, onToggleKeyRecording, onPlaybackKeys, onKeyEvent, inspectTrigger = 'ctrlOrMeta', keyCount = 0, textCount = 0, failureInfo, onClearFailure, onShowFailure, failureRect, sessionPages = [], activePageId, onActivatePage, newPageNotification, onDismissNotification, onClosePage }) => {
   const [inputUrl, setInputUrl] = useState(url);
   const [isLoading, setIsLoading] = useState(true);
   const viewportRef = useRef<HTMLDivElement>(null);
@@ -289,7 +295,41 @@ export const BrowserPreview: React.FC<BrowserPreviewProps> = ({ url, onUrlChange
                 className="flex-1 bg-transparent border-none outline-none text-slate-200 placeholder-slate-600 font-mono"
              />
         </form>
+        <div className="ml-auto flex items-center gap-2">
+          {sessionPages.length > 0 && (
+            <div className="flex items-center gap-1 border-l border-slate-800 pl-2">
+              {sessionPages.map(p => (
+                <button
+                  key={p.id}
+                  onClick={() => onActivatePage && onActivatePage(p.id)}
+                  className={`px-2 py-0.5 text-[10px] rounded ${activePageId === p.id ? 'bg-blue-800 text-blue-200' : 'bg-slate-800 text-slate-300'} border border-slate-700`}
+                >{p.title || p.url}</button>
+              ))}
+            </div>
+          )}
+        </div>
+        <div className="ml-auto flex items-center gap-2">
+          {sessionPages.length > 0 && (
+            <div className="flex items-center gap-1 border-l border-slate-800 pl-2">
+              {sessionPages.map(p => (
+                <button
+                  key={p.id}
+                  onClick={() => onActivatePage && onActivatePage(p.id)}
+                  className={`px-2 py-0.5 text-[10px] rounded ${activePageId === p.id ? 'bg-blue-800 text-blue-200' : 'bg-slate-800 text-slate-300'} border border-slate-700`}
+                >{p.title || p.url}</button>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
+      {newPageNotification && (
+        <div className="h-8 bg-slate-800 border-b border-slate-700 px-3 text-[11px] text-slate-200 flex items-center gap-2">
+          <span>新页面已打开：{newPageNotification.title || newPageNotification.pageId}</span>
+          <button className="px-2 py-0.5 bg-blue-700 text-white rounded" onClick={() => onActivatePage && onActivatePage(newPageNotification.pageId)}>切换</button>
+          <button className="px-2 py-0.5 bg-slate-700 text-slate-200 rounded" onClick={() => onDismissNotification && onDismissNotification()}>保持当前</button>
+          <button className="px-2 py-0.5 bg-red-600 text-white rounded" onClick={() => onClosePage && onClosePage(newPageNotification.pageId)}>关闭新页</button>
+        </div>
+      )}
 
       {/* Browser Viewport */}
       <div 

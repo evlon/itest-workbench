@@ -120,6 +120,9 @@ export const subscribeEvents = (sessionId: string, handlers: {
   onActionComplete?: (data: any) => void,
   onError?: (data: any) => void,
   onPing?: (data: any) => void,
+  onPageOpened?: (data: any) => void,
+  onPageClosed?: (data: any) => void,
+  onPageActivated?: (data: any) => void,
 }) => {
   const es = new EventSource(`${BASE_URL}/events?sessionId=${encodeURIComponent(sessionId)}`)
   es.addEventListener('log', (e: MessageEvent) => handlers.onLog?.(JSON.parse((e as any).data)))
@@ -128,5 +131,31 @@ export const subscribeEvents = (sessionId: string, handlers: {
   es.addEventListener('action-complete', (e: MessageEvent) => handlers.onActionComplete?.(JSON.parse((e as any).data)))
   es.addEventListener('error', (e: MessageEvent) => handlers.onError?.(JSON.parse((e as any).data)))
   es.addEventListener('ping', (e: MessageEvent) => handlers.onPing?.(JSON.parse((e as any).data)))
+  es.addEventListener('page-opened', (e: MessageEvent) => handlers.onPageOpened?.(JSON.parse((e as any).data)))
+  es.addEventListener('page-closed', (e: MessageEvent) => handlers.onPageClosed?.(JSON.parse((e as any).data)))
+  es.addEventListener('page-activated', (e: MessageEvent) => handlers.onPageActivated?.(JSON.parse((e as any).data)))
   return () => es.close()
+}
+
+export const getPages = async (sessionId: string) => {
+  const res = await fetch(`${BASE_URL}/session/pages?sessionId=${encodeURIComponent(sessionId)}`)
+  return res.json()
+}
+
+export const activatePage = async (sessionId: string, pageId: string) => {
+  const res = await fetch(`${BASE_URL}/session/activate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sessionId, pageId })
+  })
+  return res.json()
+}
+
+export const closePage = async (sessionId: string, pageId: string) => {
+  const res = await fetch(`${BASE_URL}/session/close`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sessionId, pageId })
+  })
+  return res.json()
 }

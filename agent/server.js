@@ -10,18 +10,37 @@ const sessions = new Map()
 
 async function captureAndBroadcast(session) {
   try {
-    const buf = await session.page.screenshot({ type: 'jpeg', quality: 60 })
+    const activeId = session.activePageId
+    const entry = activeId ? session.pages?.get(activeId) : null
+    const p = entry?.page || session.page
+    const buf = await p.screenshot({ type: 'jpeg', quality: 60 })
     const hash = createHash('md5').update(buf).digest('hex')
-    if (hash !== session.lastHash) {
-      session.lastHash = hash
-      const base64 = buf.toString('base64')
-      session.lastScreenshot = base64
-      for (const client of session.clients) {
-        writeEvent(client, 'screenshot', { base64, timestamp: Date.now() })
+    if (activeId) {
+      if (hash !== (entry?.lastHash || '')) {
+        if (entry) entry.lastHash = hash
+        const base64 = buf.toString('base64')
+        if (entry) entry.lastScreenshot = base64
+        for (const client of session.clients) {
+          writeEvent(client, 'screenshot', { base64, timestamp: Date.now(), pageId: activeId })
+        }
+        for (const ws of session.wsClients) {
+          if (ws.readyState === 1) {
+            try { ws.send(buf) } catch {}
+          }
+        }
       }
-      for (const ws of session.wsClients) {
-        if (ws.readyState === 1) {
-          try { ws.send(buf) } catch {}
+    } else {
+      if (hash !== session.lastHash) {
+        session.lastHash = hash
+        const base64 = buf.toString('base64')
+        session.lastScreenshot = base64
+        for (const client of session.clients) {
+          writeEvent(client, 'screenshot', { base64, timestamp: Date.now() })
+        }
+        for (const ws of session.wsClients) {
+          if (ws.readyState === 1) {
+            try { ws.send(buf) } catch {}
+          }
         }
       }
     }
@@ -88,7 +107,12 @@ const server = http.createServer(async (req, res) => {
     const session = sessions.get(sessionId)
     session.clients.add(res)
     writeEvent(res, 'log', { level: 'info', message: 'connected', timestamp: Date.now() })
-    if (session.lastScreenshot) writeEvent(res, 'screenshot', { base64: session.lastScreenshot, timestamp: Date.now() })
+    if (session.activePageId) {
+      const entry = session.pages.get(session.activePageId)
+      if (entry && entry.lastScreenshot) writeEvent(res, 'screenshot', { base64: entry.lastScreenshot, timestamp: Date.now(), pageId: session.activePageId })
+    } else if (session.lastScreenshot) {
+      writeEvent(res, 'screenshot', { base64: session.lastScreenshot, timestamp: Date.now() })
+    }
     writeEvent(res, 'dom-update', { html_snippet: '<div>preview</div>', interactive_elements: [] })
     if (session.streamEnabled && !session.streamTimer) {
       session.streamTimer = setInterval(() => captureAndBroadcast(session), session.streamIntervalMs || 1000)
@@ -148,7 +172,7 @@ const server = http.createServer(async (req, res) => {
     try { shot = (await page.screenshot({ fullPage: true }))?.toString('base64') || '' } catch {}
     const dpr = await page.evaluate(() => window.devicePixelRatio || 1)
     const vp = page.viewportSize() || { width: 1280, height: 720 }
-    sessions.set(sessionId, {
+    const sess = {
       id: sessionId,
       url: urlToOpen,
       headless: headlessReq,
@@ -165,7 +189,40 @@ const server = http.createServer(async (req, res) => {
       wsClients: new Set(),
       devicePixelRatio: dpr,
       viewport: vp,
-    })
+      pages: new Map(),
+      activePageId: null,
+    }
+    sessions.set(sessionId, sess)
+    const registerPage = (session, p) => {
+      const pageId = `page_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+      const meta = { url: p.url(), title: '', createdAt: Date.now() }
+      session.pages.set(pageId, { id: pageId, page: p, lastScreenshot: '', lastHash: '', meta })
+      session.activePageId = pageId
+      for (const client of session.clients) writeEvent(client, 'page-activated', { pageId, timestamp: Date.now() })
+      p.screenshot({ type: 'jpeg', quality: 60 }).then((buf) => {
+        const base64 = buf.toString('base64')
+        const hash = createHash('md5').update(buf).digest('hex')
+        const entry = session.pages.get(pageId)
+        if (entry) { entry.lastScreenshot = base64; entry.lastHash = hash }
+        for (const client of session.clients) {
+          writeEvent(client, 'page-opened', { pageId, url: meta.url, title: meta.title, timestamp: Date.now(), snapshot: base64.slice(0, 120) })
+        }
+      }).catch(() => {})
+      p.on('close', () => {
+        session.pages.delete(pageId)
+        for (const client of session.clients) {
+          writeEvent(client, 'page-closed', { pageId, timestamp: Date.now() })
+        }
+        if (session.activePageId === pageId) {
+          session.activePageId = Array.from(session.pages.keys())[0] || null
+          if (session.activePageId) {
+            for (const client of session.clients) writeEvent(client, 'page-activated', { pageId: session.activePageId, timestamp: Date.now() })
+          }
+        }
+      })
+    }
+    registerPage(sess, page)
+    context.on('page', (p) => registerPage(sess, p))
     return sendJson(res, 200, { sessionId })
   }
 
@@ -208,14 +265,47 @@ const server = http.createServer(async (req, res) => {
       if (body.method === 'navigate' && body.selector) {
         await page.goto(body.selector, { waitUntil: 'load', timeout: 15000 })
       } else if (body.method === 'click' && body.selector) {
-        await page.locator(body.selector).first().click({ timeout: 3000 })
+        const pPromise = session.context.waitForEvent('page', { timeout: 800 }).catch(() => null)
+        await Promise.all([
+          pPromise,
+          page.locator(body.selector).first().click({ timeout: 3000 })
+        ])
+        const newPage = await pPromise
+        if (newPage) {
+          const s = sessions.get(body.sessionId)
+          if (s && s.pages && typeof s.pages.set === 'function') {
+            const pageId = `page_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+            const meta = { url: newPage.url(), title: '', createdAt: Date.now() }
+            s.pages.set(pageId, { id: pageId, page: newPage, lastScreenshot: '', lastHash: '', meta })
+            s.activePageId = pageId
+            try {
+              const buf = await newPage.screenshot({ type: 'jpeg', quality: 60 })
+              const base64 = buf.toString('base64')
+              const hash = createHash('md5').update(buf).digest('hex')
+              const entry = s.pages.get(pageId)
+              if (entry) { entry.lastScreenshot = base64; entry.lastHash = hash }
+            } catch {}
+            for (const client of s.clients) writeEvent(client, 'page-opened', { pageId, url: meta.url, title: meta.title, timestamp: Date.now() })
+            for (const client of s.clients) writeEvent(client, 'page-activated', { pageId, timestamp: Date.now() })
+          }
+        }
       }
     } catch {}
     let shot = ''
     try {
-      const buf = await page.screenshot({ fullPage: true, type: 'jpeg', quality: 60 })
+      const activeId = session.activePageId
+      const entry = activeId ? session.pages?.get(activeId) : null
+      const p = entry?.page || page
+      const buf = await p.screenshot({ fullPage: true, type: 'jpeg', quality: 60 })
       const hash = createHash('md5').update(buf).digest('hex')
-      if (hash !== session.lastHash) {
+      if (activeId) {
+        if (hash !== (entry?.lastHash || '')) {
+          if (entry) entry.lastHash = hash
+          shot = buf.toString('base64')
+          if (entry) entry.lastScreenshot = shot
+          for (const client of session.clients) writeEvent(client, 'screenshot', { base64: shot, timestamp: Date.now(), pageId: activeId })
+        }
+      } else if (hash !== session.lastHash) {
         session.lastHash = hash
         shot = buf.toString('base64')
         session.lastScreenshot = shot
@@ -454,6 +544,46 @@ const server = http.createServer(async (req, res) => {
     return sendJson(res, 200, { devicePixelRatio: session.devicePixelRatio || 1, viewport: session.viewport || { width: 0, height: 0 } })
   }
 
+  if (req.method === 'GET' && pathname === '/session/pages') {
+    const sessionId = parsed.query.sessionId
+    if (!sessionId || !sessions.has(sessionId)) {
+      return sendJson(res, 400, { error: 'invalid_session' })
+    }
+    const session = sessions.get(sessionId)
+    const pages = Array.from(session.pages.values()).map(p => ({ id: p.id, url: p.meta.url, title: p.meta.title, createdAt: p.meta.createdAt }))
+    return sendJson(res, 200, { pages, activePageId: session.activePageId })
+  }
+
+  if (req.method === 'POST' && pathname === '/session/activate') {
+    const body = await parseBody(req)
+    const sessionId = body.sessionId
+    const pageId = body.pageId
+    if (!sessionId || !pageId || !sessions.has(sessionId)) {
+      return sendJson(res, 400, { error: 'invalid_session_or_page' })
+    }
+    const session = sessions.get(sessionId)
+    if (!session.pages.has(pageId)) {
+      return sendJson(res, 400, { error: 'invalid_page' })
+    }
+    session.activePageId = pageId
+    for (const client of session.clients) writeEvent(client, 'page-activated', { pageId, timestamp: Date.now() })
+    return sendJson(res, 200, { ok: true })
+  }
+
+  if (req.method === 'POST' && pathname === '/session/close') {
+    const body = await parseBody(req)
+    const sessionId = body.sessionId
+    const pageId = body.pageId
+    if (!sessionId || !pageId || !sessions.has(sessionId)) {
+      return sendJson(res, 400, { error: 'invalid_session_or_page' })
+    }
+    const session = sessions.get(sessionId)
+    const entry = session.pages.get(pageId)
+    if (!entry) return sendJson(res, 400, { error: 'invalid_page' })
+    try { await entry.page.close() } catch {}
+    return sendJson(res, 200, { ok: true })
+  }
+
   if (req.method === 'POST' && pathname === '/action/hit') {
     const body = await parseBody(req)
     const session = sessions.get(body.sessionId)
@@ -568,7 +698,7 @@ const server = http.createServer(async (req, res) => {
     Object.entries(corsHeaders).forEach(([k, v]) => res.setHeader(k, v))
     res.setHeader('Content-Type', 'text/html')
     res.statusCode = 200
-    return res.end(`<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><title>测试页面</title><style>body{font-family:system-ui,Arial;padding:20px}section{margin-bottom:24px}label{display:block;margin-bottom:8px}</style></head><body><h1>工作台测试页面</h1><section><label>搜索：<input name="q" placeholder="输入关键词" /></label><button id="submit">提交</button></section><section><label for="category">类别：</label><select id="category"><option>手机</option><option>电脑</option><option>家电</option></select></section><section><label><input type="checkbox" id="agree"/> 我已阅读并同意</label></section><section><a href="#" aria-label="帮助">帮助链接</a></section></body></html>`)
+    return res.end(`<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><title>测试页面</title><style>body{font-family:system-ui,Arial;padding:20px}section{margin-bottom:24px}label{display:block;margin-bottom:8px}</style></head><body><h1>工作台测试页面</h1><section><label>搜索：<input name="q" placeholder="输入关键词" /></label><button id="submit">提交</button></section><section><label for="category">类别：</label><select id="category"><option>手机</option><option>电脑</option><option>家电</option></select></section><section><label><input type="checkbox" id="agree"/> 我已阅读并同意</label></section><section><a href="#" aria-label="帮助">帮助链接</a></section><section><a id="popup" href="https://example.com" target="_blank">打开新页</a></section></body></html>`)
   }
 
   sendJson(res, 404, { error: 'not_found' })
@@ -591,9 +721,14 @@ server.on('upgrade', (req, socket, head) => {
     }
     const session = sessions.get(sessionId)
     session.wsClients.add(ws)
-    // Immediately send the last screenshot (if available) to the newly connected WS client
     try {
-      if (session.lastScreenshot) {
+      if (session.activePageId) {
+        const entry = session.pages.get(session.activePageId)
+        if (entry && entry.lastScreenshot) {
+          const buf = Buffer.from(entry.lastScreenshot, 'base64')
+          try { if (ws.readyState === 1) ws.send(buf) } catch {}
+        }
+      } else if (session.lastScreenshot) {
         const buf = Buffer.from(session.lastScreenshot, 'base64')
         try { if (ws.readyState === 1) ws.send(buf) } catch {}
       }

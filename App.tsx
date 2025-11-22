@@ -9,7 +9,7 @@ import { EditStepModal } from './components/EditStepModal';
 import { ActionMenu } from './components/ActionMenu';
 import { generateTestScript, parseIntentToStepRefined } from './services/aiService';
 import { refineStepTarget, getBestStaticSelectorForStep } from './services/selectorRefiner';
-import { startSession, stopSession, subscribeEvents, exec as agentExec, act as agentAct, observe as agentObserve, startStream as agentStartStream, stopStream as agentStopStream, keypress as agentKeypress, focused as agentFocused, assertRemote, waitRemote, smartWait } from './services/agentClient';
+import { startSession, stopSession, subscribeEvents, exec as agentExec, act as agentAct, observe as agentObserve, startStream as agentStartStream, stopStream as agentStopStream, keypress as agentKeypress, focused as agentFocused, assertRemote, waitRemote, smartWait, getPages, activatePage } from './services/agentClient';
 import { Step, ScriptMode, StepType, StepTarget } from './types';
 import { Play, Square, Download, Sparkles, Zap, Layout, Code, Bot, Settings, AlertTriangle, List, Package, Target } from 'lucide-react';
 
@@ -39,6 +39,9 @@ export const App: React.FC = () => {
   const [isHeadless, setIsHeadless] = useState(true);
   const [inspectTrigger, setInspectTrigger] = useState<'ctrlOrMeta' | 'alt' | 'shift'>('ctrlOrMeta');
   const [inputBuffer, setInputBuffer] = useState('');
+  const [sessionPages, setSessionPages] = useState<{ id: string, url: string, title?: string }[]>([]);
+  const [activePageId, setActivePageId] = useState<string | null>(null);
+  const [newPageNotification, setNewPageNotification] = useState<{ pageId: string, title?: string } | null>(null);
   
   // Editing State
   const [editingStep, setEditingStep] = useState<Step | null>(null);
@@ -81,6 +84,11 @@ export const App: React.FC = () => {
       createdSession = res.sessionId;
       setSessionId(res.sessionId);
       setIsStreaming(false);
+      try {
+        const pages = await getPages(res.sessionId)
+        setSessionPages(pages.pages || [])
+        setActivePageId(pages.activePageId || null)
+      } catch {}
     };
     init();
     return () => {
@@ -94,7 +102,10 @@ export const App: React.FC = () => {
   useEffect(() => {
     if (!sessionId) return;
     const unsub = subscribeEvents(sessionId, {
-      onScreenshot: (d) => setScreenshotBase64(d.base64),
+      onScreenshot: (d) => {
+        const pid = d.pageId || activePageId
+        if (!activePageId || (pid && pid === activePageId)) setScreenshotBase64(d.base64)
+      },
       onDomUpdate: (d) => setInteractiveElements(d.interactive_elements || []),
       onActionComplete: (d) => {
         const status = d?.status;
@@ -109,10 +120,22 @@ export const App: React.FC = () => {
           setSteps(prev => prev.map(s => s.id === lastRecordingStepId ? { ...s, status: status === 'failed' ? 'failed' : 'success' } : s));
           setLastRecordingStepId(null);
         }
+      },
+      onPageOpened: (d) => {
+        setSessionPages(prev => prev.concat([{ id: d.pageId, url: d.url, title: d.title }]))
+        setNewPageNotification({ pageId: d.pageId, title: d.title })
+      },
+      onPageClosed: (d) => {
+        setSessionPages(prev => prev.filter(p => p.id !== d.pageId))
+        if (activePageId === d.pageId) setActivePageId(null)
+      },
+      onPageActivated: (d) => {
+        setActivePageId(d.pageId)
+        setNewPageNotification(null)
       }
     });
     return () => { unsub(); };
-  }, [sessionId, lastRecordingStepId]);
+  }, [sessionId, lastRecordingStepId, activePageId]);
 
   // Auto-generate code when steps or mode changes
   useEffect(() => {
@@ -584,6 +607,17 @@ export const App: React.FC = () => {
       }
   };
 
+  const handleActivatePage = async (pageId: string) => {
+    if (!sessionId) return
+    await activatePage(sessionId, pageId)
+    setActivePageId(pageId)
+    setNewPageNotification(null)
+    try {
+      const pages = await getPages(sessionId)
+      setSessionPages(pages.pages || [])
+    } catch {}
+  }
+
   const handleToggleStreaming = async () => {
     if (!sessionId) return;
     if (isStreaming) {
@@ -923,6 +957,12 @@ export const App: React.FC = () => {
                 onClearFailure={() => setFailureInfo(null)}
                 onShowFailure={() => setIsFailureModalOpen(true)}
                 failureRect={failureRect}
+                sessionPages={sessionPages}
+                activePageId={activePageId || undefined}
+                onActivatePage={handleActivatePage}
+                newPageNotification={newPageNotification}
+                onDismissNotification={() => setNewPageNotification(null)}
+                onClosePage={async (pid) => { if (!sessionId) return; const { closePage } = await import('./services/agentClient'); await closePage(sessionId, pid); const pages = await getPages(sessionId); setSessionPages(pages.pages || []); if (activePageId === pid) setActivePageId(pages.activePageId || null); setNewPageNotification(null); }}
               />
              ) : (
                <FlowGraph steps={steps} />
