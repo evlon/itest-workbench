@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { ArrowLeft, ArrowRight, RefreshCw, Lock, MonitorPlay, Wifi, MousePointer2, Type as TypeIcon, Play } from 'lucide-react';
+import { ArrowLeft, ArrowRight, RefreshCw, Lock, MonitorPlay, Wifi } from 'lucide-react';
 
 interface BrowserPreviewProps {
   url: string;
@@ -10,8 +10,6 @@ interface BrowserPreviewProps {
   sessionId?: string;
   isStreaming?: boolean;
   isKeyRecording?: boolean;
-  onToggleKeyRecording?: () => void;
-  onPlaybackKeys?: () => void;
   onKeyEvent?: (evt: { type: 'down' | 'up'; key: string; ctrl: boolean; alt: boolean; shift: boolean; meta: boolean }) => void;
   inspectTrigger?: 'ctrlOrMeta' | 'alt' | 'shift';
   keyCount?: number;
@@ -37,7 +35,7 @@ interface BrowserPreviewProps {
  * which would then return the results. For this simulation, we are faking
  * these interactions and the returned data.
  */
-export const BrowserPreview: React.FC<BrowserPreviewProps> = ({ url, onUrlChange, onElementSelect, isInspecting, screenshotBase64, sessionId, isStreaming, isKeyRecording, onToggleKeyRecording, onPlaybackKeys, onKeyEvent, inspectTrigger = 'ctrlOrMeta', keyCount = 0, textCount = 0, failureInfo, onClearFailure, onShowFailure, failureRect, sessionPages = [], activePageId, onActivatePage, newPageNotification, onDismissNotification, onClosePage }) => {
+export const BrowserPreview: React.FC<BrowserPreviewProps> = ({ url, onUrlChange, onElementSelect, isInspecting, screenshotBase64, sessionId, isStreaming, isKeyRecording, onKeyEvent, inspectTrigger = 'ctrlOrMeta', keyCount = 0, textCount = 0, failureInfo, onClearFailure, onShowFailure, failureRect, sessionPages = [], activePageId, onActivatePage, newPageNotification, onDismissNotification, onClosePage }) => {
   const [inputUrl, setInputUrl] = useState(url);
   const [isLoading, setIsLoading] = useState(true);
   const viewportRef = useRef<HTMLDivElement>(null);
@@ -48,9 +46,7 @@ export const BrowserPreview: React.FC<BrowserPreviewProps> = ({ url, onUrlChange
   const [failOverlay, setFailOverlay] = useState<{ x: number, y: number, width: number, height: number } | null>(null);
   const [devicePixelRatio, setDevicePixelRatio] = useState<number>(1);
   const [hasFrame, setHasFrame] = useState(false);
-  // 控制模式：只有在显式开启时，前端才会把点击/按键转发到远端 agent
-  const [controlEnabled, setControlEnabled] = useState(false);
-  const [showOthers, setShowOthers] = useState(false);
+
   const currentPage = (sessionPages && sessionPages.length) ? (sessionPages.find(p => p.id === activePageId) || sessionPages[0]) : undefined
   const otherPages = (sessionPages && currentPage) ? sessionPages.filter(p => p.id !== currentPage.id) : []
 
@@ -140,8 +136,8 @@ export const BrowserPreview: React.FC<BrowserPreviewProps> = ({ url, onUrlChange
 
   useEffect(() => {
     const onDown = (e: KeyboardEvent) => {
-      // 仅在会话存在、正在录制且控制模式开启时才转发按键到远端
-      if (!sessionId || !isKeyRecording || !controlEnabled) return
+      // 仅在会话存在、正在录制时才转发按键到远端
+      if (!sessionId || !isKeyRecording) return
       const payload = { type: 'down' as const, key: e.key, ctrl: !!e.ctrlKey, alt: !!e.altKey, shift: !!e.shiftKey, meta: !!e.metaKey }
       onKeyEvent?.(payload)
       fetch(`${(import.meta as any).env?.VITE_AGENT_URL || 'http://localhost:3000'}/action/keypress`, {
@@ -151,7 +147,7 @@ export const BrowserPreview: React.FC<BrowserPreviewProps> = ({ url, onUrlChange
       }).catch(() => {})
     }
     const onUp = (e: KeyboardEvent) => {
-      if (!sessionId || !isKeyRecording || !controlEnabled) return
+      if (!sessionId || !isKeyRecording) return
       const payload = { type: 'up' as const, key: e.key, ctrl: !!e.ctrlKey, alt: !!e.altKey, shift: !!e.shiftKey, meta: !!e.metaKey }
       onKeyEvent?.(payload)
     }
@@ -163,7 +159,7 @@ export const BrowserPreview: React.FC<BrowserPreviewProps> = ({ url, onUrlChange
       window.removeEventListener('keydown', onDown)
       window.removeEventListener('keyup', onUp)
     }
-  }, [isKeyRecording, sessionId, controlEnabled])
+  }, [isKeyRecording, sessionId])
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -214,17 +210,14 @@ export const BrowserPreview: React.FC<BrowserPreviewProps> = ({ url, onUrlChange
           } else if (isInspecting && !triggerHit) {
             onElementSelect({ target: { description: hit.description, selectors: hit.selectors } })
           } else {
-            // 非检查模式：只有在控制模式开启时才把点击转发为远端 click，默认不改变远端页面
+            // 非检查模式：直接转发点击为远端 click
             const precise = hit.selectors?.precise || ''
-            if (precise && controlEnabled) {
+            if (precise) {
               fetch(`${(import.meta as any).env?.VITE_AGENT_URL || 'http://localhost:3000'}/action/exec`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ sessionId, selector: precise, method: 'click' })
               }).catch(() => {})
-            } else if (precise && !controlEnabled) {
-              // 可选：在未开启控制模式时提示（这里仅在控制台记录）
-              try { console.log('[preview] control disabled - click not forwarded', precise) } catch {}
             }
           }
         }
@@ -266,30 +259,17 @@ export const BrowserPreview: React.FC<BrowserPreviewProps> = ({ url, onUrlChange
 
   return (
     <div className="flex flex-col h-full bg-slate-900 relative">
-      {/* Browser Toolbar */}
+      {/* Browser Toolbar - 简化的工具栏，只保留基础导航和URL */}
       <div className="h-10 bg-slate-900 border-b border-slate-800 flex items-center px-3 gap-3 shrink-0 z-10 relative">
+        {/* 左侧：导航控制 */}
         <div className="flex items-center gap-2 text-slate-400">
             <ArrowLeft size={16} className="text-slate-600" />
             <ArrowRight size={16} className="text-slate-600" />
             <RefreshCw size={14} className="hover:text-slate-200 cursor-pointer" onClick={() => onUrlChange(url)}/>
         </div>
-        <div className="flex items-center gap-2">
-          <button onClick={onToggleKeyRecording} className={`text-xs px-2 py-1 rounded border ${isKeyRecording ? 'bg-green-600 text-white border-green-500' : 'bg-slate-800 text-slate-300 border-slate-700'}`}>
-            <span className="inline-flex items-center gap-1"><TypeIcon size={12} />{isKeyRecording ? '键盘录制中' : '开始键盘录制'}</span>
-          </button>
-          <button onClick={onPlaybackKeys} className="text-xs px-2 py-1 rounded border bg-slate-800 text-slate-300 border-slate-700">
-            <span className="inline-flex items-center gap-1"><Play size={12} />播放录制</span>
-          </button>
-          <button
-            onClick={() => setControlEnabled(!controlEnabled)}
-            title={controlEnabled ? '控制模式已开启 — 预览上的点击/按键会发送到远端' : '控制模式已关闭 — 仅高亮/探测，不会操作远端页面'}
-            className={`text-xs px-2 py-1 rounded border ml-1 ${controlEnabled ? 'bg-red-600 text-white border-red-500' : 'bg-slate-800 text-slate-300 border-slate-700'}`}
-          >
-            <span className="inline-flex items-center gap-1"><MousePointer2 size={12} />{controlEnabled ? '控制已开' : '控制模式'}</span>
-          </button>
-        </div>
         
-        <form onSubmit={handleUrlSubmit} className="flex-1 flex items-center bg-slate-950 border border-slate-700 rounded-full px-3 py-1.5 text-xs shadow-sm focus-within:border-blue-500 transition-colors">
+        {/* URL输入框 - 居中 */}
+        <form onSubmit={handleUrlSubmit} className="flex-1 flex items-center bg-slate-950 border border-slate-700 rounded-full px-3 py-1.5 text-xs shadow-sm focus-within:border-blue-500 transition-colors mx-4">
              <Lock size={10} className="text-green-500 mr-2" />
              <input 
                 type="text"
@@ -298,37 +278,23 @@ export const BrowserPreview: React.FC<BrowserPreviewProps> = ({ url, onUrlChange
                 className="flex-1 bg-transparent border-none outline-none text-slate-200 placeholder-slate-600 font-mono"
              />
         </form>
-        <div className="ml-auto flex items-center gap-2">
-          {sessionPages.length > 0 && currentPage && (
-            <div className="flex items-center gap-2 border-l border-slate-800 pl-2">
-              <button
-                key={currentPage.id}
-                onClick={() => onActivatePage && onActivatePage(currentPage.id)}
-                className={`px-3 py-0.5 text-[10px] rounded max-w-[240px] truncate ${activePageId === currentPage.id ? 'bg-blue-800 text-blue-200' : 'bg-slate-800 text-slate-300'} border border-slate-700`}
-              >{currentPage.title || currentPage.url}</button>
-              {otherPages.length > 0 && (
-                <div className="relative">
-                  <button
-                    onClick={() => setShowOthers(v => !v)}
-                    className="px-2 py-0.5 text-[10px] rounded bg-slate-800 text-slate-300 border border-slate-700"
-                  >{`其他 ${otherPages.length}`}</button>
-                  {showOthers && (
-                    <div className="absolute right-0 mt-1 bg-slate-900 border border-slate-800 rounded shadow-lg p-1 w-64 max-h-48 overflow-auto z-50">
-                      {otherPages.map(p => (
-                        <button
-                          key={p.id}
-                          onClick={() => { onActivatePage && onActivatePage(p.id); setShowOthers(false); }}
-                          className="block w-full text-left px-2 py-1 text-[10px] rounded hover:bg-slate-800 text-slate-300"
-                        >{p.title || p.url}</button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
-        </div>
       </div>
+      {/* Tabs bar: show each page as a tab with close button */}
+      {sessionPages.length > 0 && (
+        <div className="h-9 bg-slate-900 border-b border-slate-800 flex items-center px-2 gap-2 overflow-x-auto no-scrollbar">
+          <div className="flex items-center gap-2">
+            {sessionPages.map(p => (
+              <div key={p.id} className={`flex items-center gap-2 px-3 py-1 rounded-t-lg ${activePageId === p.id ? 'bg-slate-800 text-slate-100 border border-b-0 border-slate-700' : 'bg-slate-900 text-slate-400 hover:bg-slate-800'} shrink-0`}> 
+                <button onClick={() => onActivatePage && onActivatePage(p.id)} className="text-[12px] max-w-[220px] truncate text-left" title={p.title || p.url}>{p.title || p.url}</button>
+                {/* 最后的一个不能关闭 */}
+                {otherPages.length > 0 && (
+                  <button onClick={() => onClosePage && onClosePage(p.id)} className="text-xs px-1 py-0.5 rounded bg-transparent hover:bg-red-600 hover:text-white ml-1">×</button>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
       {newPageNotification && (
         <div className="h-8 bg-slate-800 border-b border-slate-700 px-3 text-[11px] text-slate-200 flex items-center gap-2">
           <span>新页面已打开：{newPageNotification.title || newPageNotification.pageId}</span>

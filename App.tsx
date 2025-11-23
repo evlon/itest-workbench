@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { StepList } from './components/StepList';
 import { ComponentLibrary } from './components/ComponentLibrary';
 import { BrowserPreview } from './components/BrowserPreview';
@@ -11,7 +11,7 @@ import { generateTestScript, parseIntentToStepRefined } from './services/aiServi
 import { refineStepTarget, getBestStaticSelectorForStep } from './services/selectorRefiner';
 import { startSession, stopSession, subscribeEvents, exec as agentExec, act as agentAct, observe as agentObserve, startStream as agentStartStream, stopStream as agentStopStream, keypress as agentKeypress, focused as agentFocused, assertRemote, waitRemote, smartWait, getPages, activatePage } from './services/agentClient';
 import { Step, ScriptMode, StepType, StepTarget } from './types';
-import { Play, Square, Download, Sparkles, Zap, Layout, Code, Bot, Settings, AlertTriangle, List, Package, Target } from 'lucide-react';
+import { Play, Square, Download, Sparkles, Zap, Layout, Code, Bot, Settings, AlertTriangle, List, Package, Target, Type as TypeIcon } from 'lucide-react';
 import { Button } from './components/ui/Button'
 import { Modal } from './components/ui/Modal'
 import { Tabs } from './components/ui/Tabs'
@@ -45,6 +45,7 @@ export const App: React.FC = () => {
   const [sessionPages, setSessionPages] = useState<{ id: string, url: string, title?: string }[]>([]);
   const [activePageId, setActivePageId] = useState<string | null>(null);
   const [newPageNotification, setNewPageNotification] = useState<{ pageId: string, title?: string } | null>(null);
+  const pagesRefreshTimerRef = useRef<number | null>(null);
   
   // Editing State
   const [editingStep, setEditingStep] = useState<Step | null>(null);
@@ -107,7 +108,12 @@ export const App: React.FC = () => {
     const unsub = subscribeEvents(sessionId, {
       onScreenshot: (d) => {
         const pid = d.pageId || activePageId
+        // 更新截图展示（仅当是当前激活页或未设置激活页时）
         if (!activePageId || (pid && pid === activePageId)) setScreenshotBase64(d.base64)
+        // 如果事件包含 pageId 且包含 title/url 元数据，则同步更新 sessionPages
+        if (d && d.pageId && (d.title || d.url)) {
+          setSessionPages(prev => prev.map(p => p.id === d.pageId ? { ...p, title: d.title || p.title, url: d.url || p.url } : p))
+        }
       },
       onDomUpdate: (d) => setInteractiveElements(d.interactive_elements || []),
       onActionComplete: (d) => {
@@ -123,6 +129,13 @@ export const App: React.FC = () => {
           setSteps(prev => prev.map(s => s.id === lastRecordingStepId ? { ...s, status: status === 'failed' ? 'failed' : 'success' } : s));
           setLastRecordingStepId(null);
         }
+        // 如果 action-complete 看起来与导航相关，则在短延时后刷新 pages 列表以同步 title/url
+        try {
+          const actionLike = String(d?.action || d?.intent || '').toLowerCase();
+          if (actionLike.includes('navigate') || actionLike.includes('跳转') || d?.result?.navigation) {
+            scheduleRefreshPages(600);
+          }
+        } catch {}
       },
       onPageOpened: (d) => {
         setSessionPages(prev => prev.concat([{ id: d.pageId, url: d.url, title: d.title }]))
@@ -133,12 +146,38 @@ export const App: React.FC = () => {
         if (activePageId === d.pageId) setActivePageId(null)
       },
       onPageActivated: (d) => {
+        // 激活页事件：更新 active id，并同步页面元信息（如果有）
         setActivePageId(d.pageId)
         setNewPageNotification(null)
+        if (d && (d.title || d.url)) {
+          setSessionPages(prev => prev.map(p => p.id === d.pageId ? { ...p, title: d.title || p.title, url: d.url || p.url } : p))
+        }
       }
     });
     return () => { unsub(); };
   }, [sessionId, lastRecordingStepId, activePageId]);
+
+  // Refresh pages helper + debounce
+  const refreshPages = async (forceActive = false) => {
+    if (!sessionId) return;
+    try {
+      const pages = await getPages(sessionId);
+      setSessionPages(pages.pages || []);
+      if (forceActive && pages.activePageId) setActivePageId(pages.activePageId || null);
+    } catch {}
+  }
+
+  const scheduleRefreshPages = (delay = 800) => {
+    try {
+      if (pagesRefreshTimerRef.current) {
+        window.clearTimeout(pagesRefreshTimerRef.current as any);
+      }
+      pagesRefreshTimerRef.current = window.setTimeout(() => {
+        refreshPages();
+        pagesRefreshTimerRef.current = null;
+      }, delay) as unknown as number;
+    } catch {}
+  }
 
   // Auto-generate code when steps or mode changes
   useEffect(() => {
@@ -607,6 +646,8 @@ export const App: React.FC = () => {
       setUrl(newUrl);
       if (sessionId) {
         agentExec(sessionId, newUrl, 'navigate');
+        // 在导航命令后短延迟刷新 pages，以便在后端没有发送 title 时同步页签标题
+        scheduleRefreshPages(800);
       }
   };
 
@@ -891,8 +932,9 @@ export const App: React.FC = () => {
 
         {/* Middle: Preview & Flow */}
         <section className="flex-1 flex flex-col min-w-0 bg-slate-950 relative border-r border-slate-800">
-          {/* Toolbar */}
-          <div className="h-10 border-b border-slate-800 flex items-center px-4 gap-4 bg-slate-900/30">
+          {/* Toolbar - 整合所有控制按钮 */}
+          <div className="h-10 border-b border-slate-800 flex items-center px-0 gap-0 bg-slate-900/30">
+            {/* 左侧：标签切换 */}
             <Tabs
               items={[
                 { key: 'live', label: '实时预览', icon: <Layout size={14} /> },
@@ -901,10 +943,36 @@ export const App: React.FC = () => {
               activeKey={activeMainTab}
               onChange={(k) => setActiveMainTab(k as any)}
             />
-            <div className="ml-auto flex items-center gap-2">
+
+            {/* 中间：流式预览和录制控制 */}
+            <div className="flex items-center gap-2 border-l border-slate-700 pl-4">
+              {/* 选择元素控制 */}
+              <Button onClick={handleInspectToggle} className={isInspecting ? 'border border-blue-500/50 text-blue-400 bg-blue-500/10 animate-pulse' : ''}>
+                <Target size={14} />
+                {isInspecting ? '停止选择' : '选择元素'}
+              </Button>
+              
+              {/* 流式预览控制 */}
               <Button onClick={handleToggleStreaming} className={isStreaming ? 'border-green-600 text-green-400 bg-green-500/10' : ''}>
                 {isStreaming ? '流式预览：开' : '流式预览：关'}
               </Button>
+              
+              {/* 键盘录制控制 */}
+              <Button onClick={handleToggleKeyRecording} className={isKeyRecording ? 'border-green-600 text-green-400 bg-green-500/10' : ''}>
+                <TypeIcon size={14} />
+                {isKeyRecording ? '键盘录制中' : '开始键盘录制'}
+              </Button>
+              
+              {/* 播放录制 */}
+              <Button onClick={handlePlaybackKeys} disabled={keyLog.length === 0}>
+                <Play size={14} />
+                播放录制
+              </Button>
+            </div>
+
+            {/* 右侧：设置和控制 */}
+            <div className="ml-auto flex items-center gap-2">
+              {/* 菜单触发设置 */}
               <select
                 value={inspectTrigger}
                 onChange={(e) => setInspectTrigger(e.target.value as any)}
@@ -929,8 +997,6 @@ export const App: React.FC = () => {
                 sessionId={sessionId || undefined}
                 isStreaming={isStreaming}
                 isKeyRecording={isKeyRecording}
-                onToggleKeyRecording={handleToggleKeyRecording}
-                onPlaybackKeys={handlePlaybackKeys}
                 onKeyEvent={handleKeyEvent}
                 inspectTrigger={inspectTrigger}
                 keyCount={keyLog.filter(k => k.type==='down').length}
