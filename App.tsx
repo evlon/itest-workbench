@@ -11,7 +11,7 @@ import { generateTestScript, parseIntentToStepRefined } from './services/aiServi
 import { refineStepTarget, getBestStaticSelectorForStep } from './services/selectorRefiner';
 import { startSession, stopSession, subscribeEvents, exec as agentExec, act as agentAct, observe as agentObserve, startStream as agentStartStream, stopStream as agentStopStream, keypress as agentKeypress, focused as agentFocused, assertRemote, waitRemote, smartWait, getPages, activatePage } from './services/agentClient';
 import { Step, ScriptMode, StepType, StepTarget } from './types';
-import { Play, Square, Download, Sparkles, Zap, Layout, Code, Bot, Settings, AlertTriangle, List, Package, Target, Type as TypeIcon } from 'lucide-react';
+import { Play, Square, Download, Sparkles, Zap, Layout, Code, Bot, Settings, AlertTriangle, List, Package, Target, Type as TypeIcon, ChevronLeft, ChevronRight, Undo2 } from 'lucide-react';
 import { Button } from './components/ui/Button'
 import { Modal } from './components/ui/Modal'
 import { Tabs } from './components/ui/Tabs'
@@ -66,6 +66,13 @@ export const App: React.FC = () => {
   const [userComponents, setUserComponents] = useState<any[]>([]);
   const [isParamsModalOpen, setIsParamsModalOpen] = useState(false);
   const [failureInfo, setFailureInfo] = useState<{ htmlSnippet: string; at: number } | null>(null);
+  const [leftWeight, setLeftWeight] = useState(25);
+  const [middleWeight, setMiddleWeight] = useState(50);
+  const [rightWeight, setRightWeight] = useState(25);
+  const [leftVisible, setLeftVisible] = useState(true);
+  const [middleVisible, setMiddleVisible] = useState(true);
+  const [rightVisible, setRightVisible] = useState(true);
+  const layoutRef = useRef<HTMLDivElement>(null);
   const [failureRect, setFailureRect] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
   const [isFailureModalOpen, setIsFailureModalOpen] = useState(false);
   const [componentDraft, setComponentDraft] = useState<{ name: string; steps: Step[] } | null>(null);
@@ -156,6 +163,96 @@ export const App: React.FC = () => {
     });
     return () => { unsub(); };
   }, [sessionId, lastRecordingStepId, activePageId]);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('workbench_layout');
+      if (raw) {
+        const s = JSON.parse(raw);
+        if (typeof s.leftWeight === 'number') setLeftWeight(s.leftWeight);
+        if (typeof s.middleWeight === 'number') setMiddleWeight(s.middleWeight);
+        if (typeof s.rightWeight === 'number') setRightWeight(s.rightWeight);
+        if (typeof s.leftVisible === 'boolean') setLeftVisible(s.leftVisible);
+        setMiddleVisible(true);
+        if (typeof s.rightVisible === 'boolean') setRightVisible(s.rightVisible);
+      }
+    } catch {}
+  }, []);
+
+  useEffect(() => {
+    try {
+      const s = { leftWeight, middleWeight, rightWeight, leftVisible, middleVisible, rightVisible };
+      localStorage.setItem('workbench_layout', JSON.stringify(s));
+    } catch {}
+  }, [leftWeight, middleWeight, rightWeight, leftVisible, middleVisible, rightVisible]);
+
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => {
+      const isCtrl = !!e.ctrlKey || !!e.metaKey;
+      if (!isCtrl) return;
+      if (e.code === 'Digit1') setLeftVisible(v => !v);
+      if (e.code === 'Digit3') setRightVisible(v => !v);
+    };
+    window.addEventListener('keydown', h);
+    return () => window.removeEventListener('keydown', h);
+  }, []);
+
+  const clamp = (v: number, min: number, max: number) => Math.min(Math.max(v, min), max);
+  const visibleSum = (l: boolean, m: boolean, r: boolean) => (l ? leftWeight : 0) + (m ? middleWeight : 0) + (r ? rightWeight : 0);
+  const leftPct = leftVisible ? (leftWeight / visibleSum(leftVisible, middleVisible, rightVisible)) * 100 : 0;
+  const middlePct = middleVisible ? (middleWeight / visibleSum(leftVisible, middleVisible, rightVisible)) * 100 : 0;
+  const rightPct = rightVisible ? (rightWeight / visibleSum(leftVisible, middleVisible, rightVisible)) * 100 : 0;
+
+  const resetLayout = () => {
+    setLeftWeight(25);
+    setMiddleWeight(50);
+    setRightWeight(25);
+    setLeftVisible(true);
+    setMiddleVisible(true);
+    setRightVisible(true);
+  };
+
+  const onDragSeparator = (which: 'lm' | 'mr') => (e: React.MouseEvent) => {
+    const startX = e.clientX;
+    const root = layoutRef.current;
+    const full = root ? root.clientWidth : window.innerWidth;
+    const sum = visibleSum(leftVisible, middleVisible, rightVisible);
+    if (!full || !sum) return;
+    const initL = leftWeight;
+    const initM = middleWeight;
+    const initR = rightWeight;
+    const initLn = (initL / sum) * 100;
+    const initMn = (initM / sum) * 100;
+    const initRn = (initR / sum) * 100;
+    const minL = 10;
+    const minM = 20;
+    const minR = 10;
+    const move = (ev: MouseEvent) => {
+      const dx = ev.clientX - startX;
+      const dn = (dx / full) * 100;
+      if (which === 'lm') {
+        if (!(leftVisible && middleVisible)) return;
+        const nextLn = clamp(initLn + dn, minL, initLn + initMn - minM);
+        const nextL = (nextLn / 100) * sum;
+        const nextM = initL + initM - nextL;
+        setLeftWeight(nextL);
+        setMiddleWeight(nextM);
+      } else {
+        if (!(middleVisible && rightVisible)) return;
+        const nextMn = clamp(initMn + dn, minM, initMn + initRn - minR);
+        const nextM = (nextMn / 100) * sum;
+        const nextR = initM + initR - nextM;
+        setMiddleWeight(nextM);
+        setRightWeight(nextR);
+      }
+    };
+    const up = () => {
+      window.removeEventListener('mousemove', move);
+      window.removeEventListener('mouseup', up);
+    };
+    window.addEventListener('mousemove', move);
+    window.addEventListener('mouseup', up);
+  };
 
   // Refresh pages helper + debounce
   const refreshPages = async (forceActive = false) => {
@@ -860,14 +957,18 @@ export const App: React.FC = () => {
              <Download size={14} />
              导出脚本
            </Button>
+           <Button onClick={resetLayout} className="">
+             <Undo2 size={14} />
+             重置布局
+           </Button>
         </div>
       </header>
 
       {/* --- Main Content Grid --- */}
-      <main className="flex-1 flex overflow-hidden">
+      <main ref={layoutRef} className="flex-1 flex overflow-hidden">
         
         {/* Left Sidebar: Tabs + Content */}
-      <aside className="w-72 shrink-0 flex flex-col z-10 border-r border-slate-800 bg-slate-950">
+      <aside className={`relative shrink-0 flex flex-col z-10 border-r border-slate-800 bg-slate-950 transition-all duration-300 ease-in-out ${leftVisible ? '' : 'hidden'}`} style={{ width: `${leftPct}%` }}>
            <Tabs
              items={[
                { key: 'steps', label: '当前用例', icon: <List size={14} /> },
@@ -933,9 +1034,32 @@ export const App: React.FC = () => {
              )}
            </div>
         </aside>
+        {leftVisible && middleVisible && (
+          <div onMouseDown={onDragSeparator('lm')} className="relative w-2 shrink-0 bg-slate-800 hover:bg-slate-700 cursor-col-resize transition-colors duration-300 ease-in-out">
+            <button
+              title="隐藏左侧 (Ctrl+1)"
+              onMouseDown={(e) => { e.stopPropagation(); }}
+              onClick={() => setLeftVisible(false)}
+              className="absolute top-1/2 -translate-y-1/2 left-0 right-0 flex items-center justify-center text-slate-400 hover:text-slate-200"
+            >
+              <ChevronLeft size={14} />
+            </button>
+          </div>
+        )}
+        {!leftVisible && middleVisible && (
+          <div
+            className="relative w-2 shrink-0 bg-slate-800 hover:bg-slate-700 cursor-pointer transition-colors duration-300 ease-in-out"
+            title="显示左侧"
+            onClick={() => setLeftVisible(true)}
+          >
+            <div className="absolute top-1/2 -translate-y-1/2 left-0 right-0 flex items-center justify-center text-slate-400 hover:text-slate-200">
+              <ChevronRight size={14} />
+            </div>
+          </div>
+        )}
 
         {/* Middle: Preview & Flow */}
-        <section className="flex-1 flex flex-col min-w-0 bg-slate-950 relative border-r border-slate-800">
+        <section className={`relative flex flex-col min-w-0 bg-slate-950 border-r border-slate-800 transition-all duration-300 ease-in-out ${middleVisible ? '' : 'hidden'}`} style={{ width: `${middlePct}%` }}>
           {/* Toolbar - 整合所有控制按钮 */}
           <div className="h-10 border-b border-slate-800 flex items-center px-0 gap-0 bg-slate-900/30">
             {/* 左侧：标签切换 */}
@@ -1050,9 +1174,32 @@ export const App: React.FC = () => {
             </div>
           </div>
         </section>
+        {middleVisible && rightVisible && (
+          <div onMouseDown={onDragSeparator('mr')} className="relative w-2 shrink-0 bg-slate-800 hover:bg-slate-700 cursor-col-resize transition-colors duration-300 ease-in-out">
+            <button
+              title="隐藏右侧 (Ctrl+3)"
+              onMouseDown={(e) => { e.stopPropagation(); }}
+              onClick={() => setRightVisible(false)}
+              className="absolute top-1/2 -translate-y-1/2 left-0 right-0 flex items-center justify-center text-slate-400 hover:text-slate-200"
+            >
+              <ChevronRight size={14} />
+            </button>
+          </div>
+        )}
+        {middleVisible && !rightVisible && (
+          <div
+            className="relative w-2 shrink-0 bg-slate-800 hover:bg-slate-700 cursor-pointer transition-colors duration-300 ease-in-out"
+            title="显示右侧"
+            onClick={() => setRightVisible(true)}
+          >
+            <div className="absolute top-1/2 -translate-y-1/2 left-0 right-0 flex items-center justify-center text-slate-400 hover:text-slate-200">
+              <ChevronLeft size={14} />
+            </div>
+          </div>
+        )}
 
         {/* Right Sidebar: Code & Config */}
-        <aside className="w-96 shrink-0 flex flex-col bg-slate-950">
+        <aside className={`relative shrink-0 flex flex-col bg-slate-950 transition-all duration-300 ease-in-out ${rightVisible ? '' : 'hidden'}`} style={{ width: `${rightPct}%` }}>
           <div className="p-4 border-b border-slate-800">
             <h2 className="font-semibold text-slate-200 text-sm mb-3 flex items-center gap-2">
               <Code size={16} className="text-blue-500"/>
@@ -1080,7 +1227,6 @@ export const App: React.FC = () => {
                 : "生成 Stagehand (AI) 代码。依赖运行时 AI 解析意图，具备极强自愈能力，适合频繁变动的页面。"}
             </div>
           </div>
-          
           <div className="flex-1 overflow-hidden">
             <CodePanel code={generatedCode} isLoading={isLoadingCode} />
           </div>
