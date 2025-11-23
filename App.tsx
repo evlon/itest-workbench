@@ -138,7 +138,7 @@ export const App: React.FC = () => {
         } catch {}
       },
       onPageOpened: (d) => {
-        setSessionPages(prev => prev.concat([{ id: d.pageId, url: d.url, title: d.title }]))
+        setSessionPages(prev => prev.some(p => p.id === d.pageId) ? prev : prev.concat([{ id: d.pageId, url: d.url, title: d.title }]))
         setNewPageNotification({ pageId: d.pageId, title: d.title })
       },
       onPageClosed: (d) => {
@@ -848,6 +848,10 @@ export const App: React.FC = () => {
            <Button onClick={() => setIsHeadless(h => !h)} variant={isHeadless ? 'secondary' : 'warning'}>
              {isHeadless ? '无头：开' : '无头：关'}
            </Button>
+                         {/* 流式预览控制 */}
+              <Button onClick={handleToggleStreaming} className={isStreaming ? 'border-green-600 text-green-400 bg-green-500/10' : ''}>
+                {isStreaming ? '流式预览：开' : '流式预览：关'}
+              </Button>
            <Button onClick={handleInspectToggle} className={isInspecting ? 'border border-blue-500/50 text-blue-400 bg-blue-500/10 animate-pulse' : ''}>
              <Target size={14} />
              {isInspecting ? '停止选择' : '选择元素'}
@@ -942,6 +946,7 @@ export const App: React.FC = () => {
               ]}
               activeKey={activeMainTab}
               onChange={(k) => setActiveMainTab(k as any)}
+              variant="segmented"
             />
 
             {/* 中间：流式预览和录制控制 */}
@@ -952,10 +957,7 @@ export const App: React.FC = () => {
                 {isInspecting ? '停止选择' : '选择元素'}
               </Button>
               
-              {/* 流式预览控制 */}
-              <Button onClick={handleToggleStreaming} className={isStreaming ? 'border-green-600 text-green-400 bg-green-500/10' : ''}>
-                {isStreaming ? '流式预览：开' : '流式预览：关'}
-              </Button>
+
               
               {/* 键盘录制控制 */}
               <Button onClick={handleToggleKeyRecording} className={isKeyRecording ? 'border-green-600 text-green-400 bg-green-500/10' : ''}>
@@ -963,11 +965,7 @@ export const App: React.FC = () => {
                 {isKeyRecording ? '键盘录制中' : '开始键盘录制'}
               </Button>
               
-              {/* 播放录制 */}
-              <Button onClick={handlePlaybackKeys} disabled={keyLog.length === 0}>
-                <Play size={14} />
-                播放录制
-              </Button>
+
             </div>
 
             {/* 右侧：设置和控制 */}
