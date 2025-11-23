@@ -1,5 +1,7 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { ArrowLeft, ArrowRight, RefreshCw, Lock, MonitorPlay, Wifi, MousePointer2 } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { ArrowLeft, ArrowRight, RefreshCw, Lock, MonitorPlay, Wifi, MousePointer2, X as CloseIcon, AlertCircle } from 'lucide-react';
+import { Button } from './ui/Button'
+import { Tooltip } from './ui/Tooltip'
 
 interface BrowserPreviewProps {
   url: string;
@@ -265,7 +267,9 @@ export const BrowserPreview: React.FC<BrowserPreviewProps> = ({ url, onUrlChange
         <div className="flex items-center gap-2 text-slate-400">
             <ArrowLeft size={16} className="text-slate-600" />
             <ArrowRight size={16} className="text-slate-600" />
-            <RefreshCw size={14} className="hover:text-slate-200 cursor-pointer" onClick={() => onUrlChange(url)}/>
+            <Tooltip content="刷新">
+              <Button ariaLabel="刷新" icon={<RefreshCw />} onClick={() => onUrlChange(url)} />
+            </Tooltip>
         </div>
         
         {/* URL输入框 - 居中 */}
@@ -288,7 +292,9 @@ export const BrowserPreview: React.FC<BrowserPreviewProps> = ({ url, onUrlChange
                 <button onClick={() => onActivatePage && onActivatePage(p.id)} className="text-[12px] max-w-[220px] truncate text-left" title={p.title || p.url}>{p.title || p.url}</button>
                 {/* 最后的一个不能关闭 */}
                 {otherPages.length > 0 && (
-                  <button onClick={() => onClosePage && onClosePage(p.id)} className="text-xs px-1 py-0.5 rounded bg-transparent hover:bg-red-600 hover:text-white ml-1">×</button>
+                  <Tooltip content="关闭标签">
+                    <Button ariaLabel="关闭标签" icon={<CloseIcon />} onClick={() => onClosePage && onClosePage(p.id)} />
+                  </Tooltip>
                 )}
               </div>
             ))}
@@ -298,9 +304,15 @@ export const BrowserPreview: React.FC<BrowserPreviewProps> = ({ url, onUrlChange
       {newPageNotification && (
         <div className="h-8 bg-slate-800 border-b border-slate-700 px-3 text-[11px] text-slate-200 flex items-center gap-2">
           <span>新页面已打开：{newPageNotification.title || newPageNotification.pageId}</span>
-          <button className="px-2 py-0.5 bg-blue-700 text-white rounded" onClick={() => onActivatePage && onActivatePage(newPageNotification.pageId)}>切换</button>
-          <button className="px-2 py-0.5 bg-slate-700 text-slate-200 rounded" onClick={() => onDismissNotification && onDismissNotification()}>保持当前</button>
-          <button className="px-2 py-0.5 bg-red-600 text-white rounded" onClick={() => onClosePage && onClosePage(newPageNotification.pageId)}>关闭新页</button>
+          <Tooltip content="切换到此页">
+            <Button variant="primary" icon={<MousePointer2 />} label="切换" onClick={() => onActivatePage && onActivatePage(newPageNotification.pageId)} />
+          </Tooltip>
+          <Tooltip content="保持当前页">
+            <Button variant="secondary" icon={<Lock />} label="保持当前" onClick={() => onDismissNotification && onDismissNotification()} />
+          </Tooltip>
+          <Tooltip content="关闭新页面">
+            <Button variant="danger" icon={<CloseIcon />} label="关闭新页" onClick={() => onClosePage && onClosePage(newPageNotification.pageId)} />
+          </Tooltip>
         </div>
       )}
 
@@ -374,7 +386,9 @@ export const BrowserPreview: React.FC<BrowserPreviewProps> = ({ url, onUrlChange
                 <span className="flex items-center gap-1 text-green-500">录制中 · 按键 {keyCount} · 文本 {textCount}</span>
               )}
               {failureInfo && (
-                <button onClick={onShowFailure} className="ml-2 text-red-400 hover:text-red-300">断言失败 · 查看详情</button>
+                <Tooltip content="断言失败 · 查看详情">
+                  <Button variant="ghost" icon={<AlertCircle />} label="断言失败 · 查看详情" onClick={onShowFailure} />
+                </Tooltip>
               )}
           </div>
           <span className="text-slate-600">模拟远程浏览器</span>

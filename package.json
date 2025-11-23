@@ -7,15 +7,15 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "agent": "node agent/server.js"
+    "agent": "node agent/server.js",
+    "test": "vitest"
   },
   "dependencies": {
-    "test:e2e": "playwright test",
     "openai": "4.63.0",
     "react": "^19.2.0",
-    "react-dom": "^19.2.0"
+    "react-dom": "^19.2.0",
+    "lucide-react": "^0.377.0"
   },
-  "@vscode/codicons": "^0.0.36",
   "devDependencies": {
     "@tailwindcss/postcss": "^4.1.17",
     "@types/node": "^22.14.0",
@@ -24,6 +24,11 @@
     "playwright": "^1.56.1",
     "postcss": "^8.5.6",
     "tailwindcss": "^4.1.17",
-    "typescript": "~5.8.2"
+    "typescript": "~5.8.2",
+    "vite": "^5.0.0",
+    "vitest": "^1.6.0",
+    "@testing-library/react": "^14.0.0",
+    "@testing-library/jest-dom": "^6.4.2",
+    "jsdom": "^24.0.0"
   }
 }

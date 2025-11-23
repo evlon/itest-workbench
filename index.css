@@ -29,6 +29,19 @@
   background: #475569; 
   border-radius: 4px;
 }
-::-webkit-scrollbar-thumb:hover {
+ ::-webkit-scrollbar-thumb:hover {
   background: #64748b; 
+}
+
+/* Button label responsive collapse */
+button[data-collapsed="true"] .btn-label {
+  opacity: 0;
+  width: 0;
+  margin: 0;
+}
+@media (max-width: 480px) {
+  /* Prefer icon-only on very small screens */
+  .btn-label {
+    transition: opacity 300ms ease-in-out, width 300ms ease-in-out;
+  }
 }

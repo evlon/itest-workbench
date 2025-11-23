@@ -1,7 +1,9 @@
 
 import React, { useState, useEffect } from 'react';
-import { X, Save, Link, Type, MousePointer2, CheckCircle, Hourglass } from 'lucide-react';
+import { X as CloseIcon, Save as SaveIcon, Link, Type, MousePointer2, CheckCircle, Hourglass } from 'lucide-react';
 import { Step } from '../types';
+import { Button } from './ui/Button'
+import { Tooltip } from './ui/Tooltip'
 
 interface EditStepModalProps {
   isOpen: boolean;
@@ -236,19 +238,12 @@ export const EditStepModal: React.FC<EditStepModalProps> = ({ isOpen, step, onCl
 
         {/* Footer */}
         <div className="px-4 py-3 bg-slate-950 border-t border-slate-800 flex justify-end gap-3">
-          <button 
-            onClick={onClose}
-            className="px-3 py-1.5 text-sm text-slate-400 hover:text-slate-200 transition-colors"
-          >
-            取消
-          </button>
-          <button 
-            onClick={handleSave}
-            className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium rounded flex items-center gap-2 transition-colors shadow-lg shadow-blue-900/20"
-          >
-            <Save size={14} />
-            保存修改
-          </button>
+          <Tooltip content="取消">
+            <Button onClick={onClose} variant="ghost" icon={<CloseIcon />} label="取消" />
+          </Tooltip>
+          <Tooltip content="保存修改">
+            <Button onClick={handleSave} variant="primary" icon={<SaveIcon />} label="保存修改" />
+          </Tooltip>
         </div>
       </div>
     </div>

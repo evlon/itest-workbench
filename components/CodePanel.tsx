@@ -1,5 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Copy, Check } from 'lucide-react';
+import { Button } from './ui/Button'
+import { Tooltip } from './ui/Tooltip'
 
 interface CodePanelProps {
   code: string;
@@ -19,12 +21,9 @@ export const CodePanel: React.FC<CodePanelProps> = ({ code, isLoading }) => {
     <div className="flex flex-col h-full bg-slate-950 border-l border-slate-800 text-slate-300 font-mono text-xs">
       <div className="flex items-center justify-between p-3 border-b border-slate-800 bg-slate-900/50">
         <span className="font-semibold text-slate-400">生成的脚本</span>
-        <button 
-          onClick={handleCopy}
-          className="p-1.5 hover:bg-slate-800 rounded text-slate-400 hover:text-white transition-colors"
-        >
-          {copied ? <Check size={14} className="text-green-500" /> : <Copy size={14} />}
-        </button>
+        <Tooltip content={copied ? '已复制' : '复制代码'}>
+          <Button ariaLabel={copied ? '已复制' : '复制代码'} icon={copied ? <Check /> : <Copy />} onClick={handleCopy} />
+        </Tooltip>
       </div>
       
       <div className="flex-1 overflow-auto p-4 relative">

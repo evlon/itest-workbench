@@ -1,4 +1,7 @@
 import React from 'react'
+import { X as CloseIcon } from 'lucide-react'
+import { Button } from './Button'
+import { Tooltip } from './Tooltip'
 
 export interface ModalProps {
   open: boolean
@@ -16,7 +19,9 @@ export const Modal: React.FC<ModalProps> = ({ open, title, onClose, children, fo
       <div className={`bg-slate-900 border border-slate-800 rounded-lg shadow-xl overflow-hidden`} style={{ width }}>
         <div className="p-4 border-b border-slate-800 flex items-center justify-between">
           <div className="text-sm font-semibold text-slate-200">{title}</div>
-          <button onClick={onClose} className="text-slate-400 text-xs">关闭</button>
+          <Tooltip content="关闭">
+            <Button ariaLabel="关闭" icon={<CloseIcon />} onClick={onClose} />
+          </Tooltip>
         </div>
         <div className="p-4">{children}</div>
         {footer && (

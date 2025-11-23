@@ -1,7 +1,9 @@
 
 import React, { useState } from 'react';
 import { Step, StepType } from '../types';
-import { Play, CheckCircle, AlertCircle, MoreHorizontal, Clock, MousePointerClick, GripVertical, Settings, Package, ChevronDown, ChevronRight, Split } from 'lucide-react';
+import { Play, CheckCircle, AlertCircle, MoreHorizontal, Clock, MousePointerClick, GripVertical, Settings, Package, ChevronDown, ChevronRight, Split, RefreshCw } from 'lucide-react';
+import { Button } from './ui/Button'
+import { Tooltip } from './ui/Tooltip'
 
 interface StepListProps {
   steps: Step[];
@@ -78,8 +80,12 @@ export const StepList: React.FC<StepListProps> = ({ steps, activeStepId, selecte
           {selectionEnabled && (
             <div className="flex items-center gap-2">
               <span className="text-xs text-blue-400">已选 {selectionCount} 步</span>
-              <button onClick={onSelectAll} className="text-[10px] px-2 py-0.5 bg-slate-800 border border-slate-700 rounded text-slate-300">全选</button>
-              <button onClick={onInvertSelection} className="text-[10px] px-2 py-0.5 bg-slate-800 border border-slate-700 rounded text-slate-300">反选</button>
+              <Tooltip content="全选">
+                <Button size="sm" variant="ghost" icon={<CheckCircle />} label="全选" onClick={onSelectAll} />
+              </Tooltip>
+              <Tooltip content="反选">
+                <Button size="sm" variant="ghost" icon={<RefreshCw />} label="反选" onClick={onInvertSelection} />
+              </Tooltip>
             </div>
           )}
         </div>
@@ -156,37 +162,22 @@ export const StepList: React.FC<StepListProps> = ({ steps, activeStepId, selecte
                   
                   {/* Actions */}
                   <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                     <button 
-                      onClick={(e) => { e.stopPropagation(); onEditStep(step); }}
-                      className="p-1 hover:bg-slate-700 text-slate-500 hover:text-slate-300 rounded transition-colors"
-                      title="编辑参数"
-                    >
-                      <Settings size={12} />
-                    </button>
-                    <button 
-                      onClick={(e) => { e.stopPropagation(); onRunStep(step); }}
-                      className="p-1 hover:bg-green-900/50 hover:text-green-400 text-slate-500 rounded transition-colors"
-                      title="执行此步骤"
-                    >
-                      <Play size={12} fill="currentColor"/>
-                    </button>
-                    <button 
-                      onClick={(e) => { e.stopPropagation(); onDeleteStep(step.id); }}
-                      className="p-1 hover:bg-red-900/50 hover:text-red-400 text-slate-500 rounded transition-colors"
-                      title="删除步骤"
-                    >
-                      <MoreHorizontal size={12} />
-                    </button>
+                    <Tooltip content="编辑参数">
+                      <Button ariaLabel="编辑参数" icon={<Settings />} onClick={(e) => { e.stopPropagation(); onEditStep(step); }} />
+                    </Tooltip>
+                    <Tooltip content="执行此步骤">
+                      <Button ariaLabel="执行此步骤" icon={<Play />} onClick={(e) => { e.stopPropagation(); onRunStep(step); }} />
+                    </Tooltip>
+                    <Tooltip content="删除步骤">
+                      <Button ariaLabel="删除步骤" icon={<MoreHorizontal />} onClick={(e) => { e.stopPropagation(); onDeleteStep(step.id); }} />
+                    </Tooltip>
                   </div>
                 </div>
                 <div className="flex items-center gap-1">
                   {isComponent && (
-                    <button
-                      onClick={(e) => { e.stopPropagation(); onToggleExpand?.(step.id); }}
-                      className="p-1 rounded hover:bg-slate-700 text-slate-400"
-                    >
-                      {expandedMap[step.id] ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                    </button>
+                    <Tooltip content={expandedMap[step.id] ? '收起' : '展开'}>
+                      <Button ariaLabel={expandedMap[step.id] ? '收起' : '展开'} icon={expandedMap[step.id] ? <ChevronDown /> : <ChevronRight />} onClick={(e) => { e.stopPropagation(); onToggleExpand?.(step.id); }} />
+                    </Tooltip>
                   )}
                   <p className="text-sm text-slate-200 truncate font-medium pr-2">{step.intent}</p>
                 </div>
@@ -290,13 +281,9 @@ export const StepList: React.FC<StepListProps> = ({ steps, activeStepId, selecte
                           {inner}
                           {paramsBlock}
                           <div className="pt-1">
-                            <button
-                              onClick={(e) => { e.stopPropagation(); onUngroupComponent?.(step); }}
-                              className="text-[10px] px-2 py-1 bg-red-900/40 border border-red-700 rounded text-red-300 flex items-center gap-1"
-                            >
-                              <Split size={12} />
-                              拆解组件
-                            </button>
+                            <Tooltip content="拆解组件">
+                              <Button variant="danger" size="sm" icon={<Split />} label="拆解组件" onClick={(e) => { e.stopPropagation(); onUngroupComponent?.(step); }} />
+                            </Tooltip>
                           </div>
                         </div>
                       );

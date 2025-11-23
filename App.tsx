@@ -11,10 +11,11 @@ import { generateTestScript, parseIntentToStepRefined } from './services/aiServi
 import { refineStepTarget, getBestStaticSelectorForStep } from './services/selectorRefiner';
 import { startSession, stopSession, subscribeEvents, exec as agentExec, act as agentAct, observe as agentObserve, startStream as agentStartStream, stopStream as agentStopStream, keypress as agentKeypress, focused as agentFocused, assertRemote, waitRemote, smartWait, getPages, activatePage } from './services/agentClient';
 import { Step, ScriptMode, StepType, StepTarget } from './types';
-import { Play, Square, Download, Sparkles, Zap, Layout, Code, Bot, Settings, AlertTriangle, List, Package, Target, Type as TypeIcon, ChevronLeft, ChevronRight, Undo2 } from 'lucide-react';
+import { Play, Square, Download, Sparkles, Zap, Layout, Code, Bot, Settings, AlertTriangle, List, Package, Target, Type as TypeIcon, ChevronLeft, ChevronRight, Undo2, Wifi, Save as SaveIcon, X as CloseIcon } from 'lucide-react';
 import { Button } from './components/ui/Button'
 import { Modal } from './components/ui/Modal'
 import { Tabs } from './components/ui/Tabs'
+import { Tooltip } from './components/ui/Tooltip'
 
 // Constants
 const INITIAL_URL = "http://localhost:3000/test.html";
@@ -942,25 +943,21 @@ export const App: React.FC = () => {
                <span>演示模式 (无 API Key)</span>
              </div>
            )}
-           <Button onClick={() => setIsHeadless(h => !h)} variant={isHeadless ? 'secondary' : 'warning'}>
-             {isHeadless ? '无头：开' : '无头：关'}
-           </Button>
-                         {/* 流式预览控制 */}
-              <Button onClick={handleToggleStreaming} className={isStreaming ? 'border-green-600 text-green-400 bg-green-500/10' : ''}>
-                {isStreaming ? '流式预览：开' : '流式预览：关'}
-              </Button>
-           <Button onClick={handleInspectToggle} className={isInspecting ? 'border border-blue-500/50 text-blue-400 bg-blue-500/10 animate-pulse' : ''}>
-             <Target size={14} />
-             {isInspecting ? '停止选择' : '选择元素'}
-           </Button>
-           <Button variant="primary" className="shadow-lg shadow-blue-900/20">
-             <Download size={14} />
-             导出脚本
-           </Button>
-           <Button onClick={resetLayout} className="">
-             <Undo2 size={14} />
-             重置布局
-           </Button>
+           <Tooltip content={isHeadless ? '无头：开' : '无头：关'}>
+             <Button onClick={() => setIsHeadless(h => !h)} variant={isHeadless ? 'secondary' : 'warning'} icon={<Sparkles />} label={isHeadless ? '无头：开' : '无头：关'} />
+           </Tooltip>
+           <Tooltip content={isStreaming ? '流式预览：开' : '流式预览：关'}>
+             <Button onClick={handleToggleStreaming} className={isStreaming ? 'border-green-600 text-green-400 bg-green-500/10' : ''} icon={<Wifi />} label={isStreaming ? '流式预览：开' : '流式预览：关'} />
+           </Tooltip>
+           <Tooltip content={isInspecting ? '停止选择' : '选择元素'}>
+             <Button onClick={handleInspectToggle} className={isInspecting ? 'border border-blue-500/50 text-blue-400 bg-blue-500/10 animate-pulse' : ''} icon={<Target />} label={isInspecting ? '停止选择' : '选择元素'} />
+           </Tooltip>
+           <Tooltip content="导出脚本">
+             <Button variant="primary" className="shadow-lg shadow-blue-900/20" icon={<Download />} label="导出脚本" />
+           </Tooltip>
+           <Tooltip content="重置布局">
+             <Button onClick={resetLayout} icon={<Undo2 />} label="重置布局" />
+           </Tooltip>
         </div>
       </header>
 
@@ -981,19 +978,12 @@ export const App: React.FC = () => {
            <div className="flex-1 overflow-hidden relative">
              {activeSidebarTab === 'steps' && (
                <div className="p-2 border-b border-slate-800 bg-slate-900/50 h-14 flex items-center">
-                 <button
-                     onClick={() => setIsExtractMode(m => !m)}
-                     className={`mr-2 flex items-center gap-2 px-3 py-1.5 rounded text-xs font-medium transition-all ${isExtractMode ? 'bg-blue-900/40 text-blue-300 border border-blue-700' : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700'}`}
-                 >
-                     提取模式
-                 </button>
-                 <button
-                     onClick={handleExtractComponent}
-                     disabled={selectedStepIds.length < 2}
-                     className="flex items-center gap-2 px-3 py-1.5 rounded text-xs font-medium transition-all bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                 >
-                     提取为组件
-                 </button>
+                <Tooltip content={isExtractMode ? '提取模式：开' : '提取模式：关'}>
+                  <Button onClick={() => setIsExtractMode(m => !m)} icon={<Sparkles />} label="提取模式" className={isExtractMode ? 'bg-blue-900/40 text-blue-300 border border-blue-700' : ''} />
+                </Tooltip>
+                <Tooltip content="提取为组件">
+                  <Button onClick={handleExtractComponent} disabled={selectedStepIds.length < 2} icon={<Package />} label="提取为组件" />
+                </Tooltip>
                  {isExtractMode && (
                    <span className="ml-2 text-[10px] px-2 py-0.5 rounded border border-blue-700 bg-blue-900/30 text-blue-300">提取模式：开</span>
                  )}
@@ -1036,20 +1026,19 @@ export const App: React.FC = () => {
         </aside>
         {leftVisible && middleVisible && (
           <div onMouseDown={onDragSeparator('lm')} className="relative w-2 shrink-0 bg-slate-800 hover:bg-slate-700 cursor-col-resize transition-colors duration-300 ease-in-out">
-            <button
-              title="隐藏左侧 (Ctrl+1)"
-              onMouseDown={(e) => { e.stopPropagation(); }}
-              onClick={() => setLeftVisible(false)}
-              className="absolute top-1/2 -translate-y-1/2 left-0 right-0 flex items-center justify-center text-slate-400 hover:text-slate-200"
-            >
-              <ChevronLeft size={14} />
-            </button>
+            <div className="absolute top-1/2 -translate-y-1/2 left-0 right-0 flex items-center justify-center">
+              <Tooltip content="隐藏左侧 (Ctrl+1)">
+                <Button ariaLabel="隐藏左侧" icon={<ChevronLeft />} onMouseDown={(e: any) => { e.stopPropagation(); }} onClick={() => setLeftVisible(false)} />
+              </Tooltip>
+            </div>
           </div>
         )}
         {!leftVisible && middleVisible && (
           <div
             className="relative w-2 shrink-0 bg-slate-800 hover:bg-slate-700 cursor-pointer transition-colors duration-300 ease-in-out"
             title="显示左侧"
+            role="button"
+            aria-label="显示左侧"
             onClick={() => setLeftVisible(true)}
           >
             <div className="absolute top-1/2 -translate-y-1/2 left-0 right-0 flex items-center justify-center text-slate-400 hover:text-slate-200">
@@ -1076,18 +1065,16 @@ export const App: React.FC = () => {
             {/* 中间：流式预览和录制控制 */}
             <div className="flex items-center gap-2 border-l border-slate-700 pl-4">
               {/* 选择元素控制 */}
-              <Button onClick={handleInspectToggle} className={isInspecting ? 'border border-blue-500/50 text-blue-400 bg-blue-500/10 animate-pulse' : ''}>
-                <Target size={14} />
-                {isInspecting ? '停止选择' : '选择元素'}
-              </Button>
+              <Tooltip content={isInspecting ? '停止选择' : '选择元素'}>
+                <Button onClick={handleInspectToggle} className={isInspecting ? 'border border-blue-500/50 text-blue-400 bg-blue-500/10 animate-pulse' : ''} icon={<Target />} label={isInspecting ? '停止选择' : '选择元素'} />
+              </Tooltip>
               
 
               
               {/* 键盘录制控制 */}
-              <Button onClick={handleToggleKeyRecording} className={isKeyRecording ? 'border-green-600 text-green-400 bg-green-500/10' : ''}>
-                <TypeIcon size={14} />
-                {isKeyRecording ? '键盘录制中' : '开始键盘录制'}
-              </Button>
+              <Tooltip content={isKeyRecording ? '键盘录制中' : '开始键盘录制'}>
+                <Button onClick={handleToggleKeyRecording} className={isKeyRecording ? 'border-green-600 text-green-400 bg-green-500/10' : ''} icon={<TypeIcon />} label={isKeyRecording ? '键盘录制中' : '开始键盘录制'} />
+              </Tooltip>
               
 
             </div>
@@ -1152,13 +1139,16 @@ export const App: React.FC = () => {
                 placeholder="告诉 AI 下一步做什么 (例如: '验证价格是否大于 0'...)"
                 className="w-full bg-slate-950 border border-slate-700 rounded-lg py-3 pl-10 pr-12 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all shadow-inner"
               />
-              <button 
-                type="submit"
-                disabled={!aiInput.trim()}
-                className="absolute inset-y-1.5 right-1.5 bg-slate-800 hover:bg-blue-600 text-slate-400 hover:text-white px-3 rounded-md transition-colors disabled:opacity-50 disabled:hover:bg-slate-800 disabled:cursor-not-allowed"
-              >
-                <Sparkles size={16} />
-              </button>
+              <Tooltip content="提交 AI 指令">
+                <button 
+                  type="submit"
+                  disabled={!aiInput.trim()}
+                  className="absolute inset-y-1.5 right-1.5 bg-slate-800 hover:bg-blue-600 text-slate-400 hover:text-white px-3 rounded-md transition-colors disabled:opacity-50 disabled:hover:bg-slate-800 disabled:cursor-not-allowed"
+                  aria-label="提交 AI 指令"
+                >
+                  <Sparkles size={16} />
+                </button>
+              </Tooltip>
             </form>
             <div className="mt-2 flex gap-2 overflow-x-auto pb-1 no-scrollbar">
               <span className="text-[10px] text-slate-500 shrink-0 pt-0.5">建议指令:</span>
@@ -1166,8 +1156,11 @@ export const App: React.FC = () => {
                 <button 
                   key={s}
                   onClick={() => setAiInput(s)}
-                  className="text-[10px] px-2 py-0.5 bg-slate-800 hover:bg-slate-700 rounded-full text-slate-400 border border-slate-700 hover:border-slate-500 transition-colors whitespace-nowrap"
+                  className="text-[10px] px-2 py-0.5 bg-slate-800 hover:bg-slate-700 rounded-full text-slate-400 border border-slate-700 hover:border-slate-500 transition-colors whitespace-nowrap flex items-center gap-2"
+                  aria-label={s}
+                  title={s}
                 >
+                  <Sparkles size={16} />
                   {s}
                 </button>
               ))}
@@ -1176,20 +1169,19 @@ export const App: React.FC = () => {
         </section>
         {middleVisible && rightVisible && (
           <div onMouseDown={onDragSeparator('mr')} className="relative w-2 shrink-0 bg-slate-800 hover:bg-slate-700 cursor-col-resize transition-colors duration-300 ease-in-out">
-            <button
-              title="隐藏右侧 (Ctrl+3)"
-              onMouseDown={(e) => { e.stopPropagation(); }}
-              onClick={() => setRightVisible(false)}
-              className="absolute top-1/2 -translate-y-1/2 left-0 right-0 flex items-center justify-center text-slate-400 hover:text-slate-200"
-            >
-              <ChevronRight size={14} />
-            </button>
+            <div className="absolute top-1/2 -translate-y-1/2 left-0 right-0 flex items-center justify-center">
+              <Tooltip content="隐藏右侧 (Ctrl+3)">
+                <Button ariaLabel="隐藏右侧" icon={<ChevronRight />} onMouseDown={(e: any) => { e.stopPropagation(); }} onClick={() => setRightVisible(false)} />
+              </Tooltip>
+            </div>
           </div>
         )}
         {middleVisible && !rightVisible && (
           <div
             className="relative w-2 shrink-0 bg-slate-800 hover:bg-slate-700 cursor-pointer transition-colors duration-300 ease-in-out"
             title="显示右侧"
+            role="button"
+            aria-label="显示右侧"
             onClick={() => setRightVisible(true)}
           >
             <div className="absolute top-1/2 -translate-y-1/2 left-0 right-0 flex items-center justify-center text-slate-400 hover:text-slate-200">
@@ -1206,20 +1198,12 @@ export const App: React.FC = () => {
               生成策略配置
             </h2>
             <div className="grid grid-cols-2 gap-2 p-1 bg-slate-900 rounded-lg border border-slate-800">
-              <button
-                onClick={() => setMode(ScriptMode.STATIC)}
-                className={`text-xs py-1.5 px-2 rounded-md transition-all flex items-center justify-center gap-2 ${mode === ScriptMode.STATIC ? 'bg-slate-700 text-white shadow' : 'text-slate-500 hover:text-slate-300'}`}
-              >
-                <Zap size={12} />
-                标准静态模式
-              </button>
-              <button
-                onClick={() => setMode(ScriptMode.DYNAMIC)}
-                className={`text-xs py-1.5 px-2 rounded-md transition-all flex items-center justify-center gap-2 ${mode === ScriptMode.DYNAMIC ? 'bg-blue-900/50 text-blue-200 shadow border border-blue-800/50' : 'text-slate-500 hover:text-slate-300'}`}
-              >
-                <Sparkles size={12} />
-                AI 动态模式
-              </button>
+              <Tooltip content="标准静态模式">
+                <Button icon={<Zap />} label="标准静态模式" onClick={() => setMode(ScriptMode.STATIC)} className={mode === ScriptMode.STATIC ? 'bg-slate-700 text-white shadow' : ''} />
+              </Tooltip>
+              <Tooltip content="AI 动态模式">
+                <Button icon={<Sparkles />} label="AI 动态模式" onClick={() => setMode(ScriptMode.DYNAMIC)} className={mode === ScriptMode.DYNAMIC ? 'bg-blue-900/50 text-blue-200 shadow border border-blue-800/50' : ''} />
+              </Tooltip>
             </div>
             <div className="mt-3 text-[10px] text-slate-500 leading-relaxed px-1">
               {mode === ScriptMode.STATIC 
@@ -1238,7 +1222,9 @@ export const App: React.FC = () => {
           <div className="w-[720px] bg-slate-900 border border-slate-800 rounded-lg shadow-xl overflow-hidden">
             <div className="p-3 border-b border-slate-800 flex items-center justify-between">
               <div className="text-sm font-semibold text-red-400">断言失败快照</div>
-              <button onClick={() => setIsFailureModalOpen(false)} className="text-slate-400 text-xs">关闭</button>
+              <Tooltip content="关闭">
+                <Button ariaLabel="关闭" icon={<CloseIcon />} onClick={() => setIsFailureModalOpen(false)} />
+              </Tooltip>
             </div>
             <div className="p-4 grid grid-cols-2 gap-4">
               <div>
@@ -1257,7 +1243,9 @@ export const App: React.FC = () => {
               </div>
             </div>
             <div className="p-3 border-t border-slate-800 flex items-center justify-end gap-2">
-              <button onClick={() => { setFailureInfo(null); setIsFailureModalOpen(false) }} className="text-xs px-3 py-1 bg-slate-800 border border-slate-700 rounded text-slate-300">清除</button>
+              <Tooltip content="清除并关闭">
+                <Button size="sm" variant="ghost" icon={<RefreshCw />} label="清除" onClick={() => { setFailureInfo(null); setIsFailureModalOpen(false) }} />
+              </Tooltip>
             </div>
           </div>
         </div>

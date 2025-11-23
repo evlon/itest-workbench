@@ -1,5 +1,7 @@
 import React from 'react';
-import { MousePointer2, Type, Eye, CheckCircle, X, Sparkles } from 'lucide-react';
+import { MousePointer2, Type, Eye, CheckCircle, X as CloseIcon, Sparkles } from 'lucide-react';
+import { Button } from './ui/Button'
+import { Tooltip } from './ui/Tooltip'
 import { StepTarget, StepType } from '../types';
 
 interface ActionMenuProps {
@@ -36,9 +38,9 @@ export const ActionMenu: React.FC<ActionMenuProps> = ({ isOpen, target, onClose,
       >
         <div className="flex justify-between items-center mb-4">
             <h2 className="text-lg font-bold text-slate-100">选择操作</h2>
-            <button onClick={onClose} className="text-slate-500 hover:text-slate-200">
-                <X size={20}/>
-            </button>
+            <Tooltip content="关闭">
+              <Button ariaLabel="关闭" icon={<CloseIcon />} onClick={onClose} />
+            </Tooltip>
         </div>
         
         <div className="mb-4">
